@@ -59,7 +59,9 @@ export default function App() {
 
   useEffect(() => {
     if (!client) return;
-    return () => announceDisconnected(client);
+    return () => {
+      void announceDisconnected(client);
+    };
   }, [client]);
 
   useEffect(() => {
@@ -339,7 +341,7 @@ export default function App() {
   }
 
   async function disconnect() {
-    if (client) announceDisconnected(client);
+    if (client) await announceDisconnected(client);
     await clearConnection();
     await clearActiveSession();
     setSettings(null);
@@ -392,9 +394,11 @@ function announceWaiting(client: OpencodeClient) {
   void client.showToast("openremote waiting").catch(() => undefined);
 }
 
-function announceDisconnected(client: OpencodeClient) {
-  void client.executeTuiCommand("openremote.disconnected").catch(() => undefined);
-  void client.showToast("openremote disconnected").catch(() => undefined);
+async function announceDisconnected(client: OpencodeClient) {
+  await Promise.allSettled([
+    client.executeTuiCommand("openremote.disconnected"),
+    client.showToast("openremote disconnected"),
+  ]);
 }
 
 function deviceName() {

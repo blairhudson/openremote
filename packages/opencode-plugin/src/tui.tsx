@@ -82,6 +82,8 @@ let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
 const registeredEventApis = new WeakSet<object>();
+const registeredCommandApis = new WeakSet<object>();
+const registeredSlotApis = new WeakSet<object>();
 const [remoteConnected, setRemoteConnected] = createSignal(false);
 const [remoteStatus, setRemoteStatus] = createSignal<"waiting" | "connected">("waiting");
 const [remoteDevice, setRemoteDevice] = createSignal("mobile");
@@ -97,11 +99,22 @@ function qrLines(value: string) {
 
 function startKeepAwake() {
   if (keepAwake) return;
-  keepAwake = spawnKeepAwake();
+  const child = spawnKeepAwake();
+  keepAwake = child;
+  child?.once("exit", () => {
+    if (keepAwake !== child) return;
+    keepAwake = undefined;
+    setKeepAwakeEnabled(false);
+  });
+  child?.once("error", () => {
+    if (keepAwake !== child) return;
+    keepAwake = undefined;
+    setKeepAwakeEnabled(false);
+  });
 }
 
 function stopKeepAwake() {
-  keepAwake?.kill();
+  if (keepAwake && !keepAwake.killed) keepAwake.kill();
   keepAwake = undefined;
 }
 
@@ -177,11 +190,11 @@ function markRemoteConnected(api: TuiPluginApi, device?: string) {
 }
 
 function markRemoteWaiting(api: TuiPluginApi) {
-  const changed = !remoteConnected() || remoteStatus() !== "waiting" || !keepAwakeEnabled();
+  const changed = !remoteConnected() || remoteStatus() !== "waiting" || keepAwakeEnabled();
   if (!changed) return;
   setRemoteConnected(true);
   setRemoteStatus("waiting");
-  setKeepAwake(true);
+  setKeepAwake(false);
   api.renderer.requestRender();
 }
 
@@ -254,6 +267,37 @@ function installEventHandlers(api: TuiPluginApi) {
   });
 }
 
+function installCommands(api: TuiPluginApi) {
+  latestApi = api;
+  const commandApi = api.command as object;
+  if (registeredCommandApis.has(commandApi)) return;
+  registeredCommandApis.add(commandApi);
+
+  api.command.register(() => [
+    {
+      title: "OpenRemote connected",
+      value: "openremote.connected",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => markRemoteConnected(latestApi ?? api),
+    },
+    {
+      title: "OpenRemote waiting",
+      value: "openremote.waiting",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => markRemoteWaiting(latestApi ?? api),
+    },
+    {
+      title: "OpenRemote disconnected",
+      value: "openremote.disconnected",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => markRemoteDisconnected(latestApi ?? api),
+    },
+  ]);
+}
+
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
   const lines = qrLines(remoteUrl(props.sessionId ?? sessionIdFromRoute(props.api)));
   return (
@@ -298,33 +342,20 @@ function createSidebarSlot(api: TuiPluginApi): TuiSlotPlugin {
   };
 }
 
+function installSlots(api: TuiPluginApi) {
+  latestApi = api;
+  const slotsApi = api.slots as object;
+  if (registeredSlotApis.has(slotsApi)) return;
+  registeredSlotApis.add(slotsApi);
+
+  api.slots.register(createSidebarSlot(api));
+}
+
 export const tui: TuiPlugin = async (api) => {
   installCleanup();
   installEventHandlers(api);
-  api.command.register(() => [
-    {
-      title: "OpenRemote connected",
-      value: "openremote.connected",
-      category: "OpenRemote",
-      hidden: true,
-      onSelect: () => markRemoteConnected(api),
-    },
-    {
-      title: "OpenRemote waiting",
-      value: "openremote.waiting",
-      category: "OpenRemote",
-      hidden: true,
-      onSelect: () => markRemoteWaiting(api),
-    },
-    {
-      title: "OpenRemote disconnected",
-      value: "openremote.disconnected",
-      category: "OpenRemote",
-      hidden: true,
-      onSelect: () => markRemoteDisconnected(api),
-    },
-  ]);
-  api.slots.register(createSidebarSlot(api));
+  installCommands(api);
+  installSlots(api);
 };
 
 export default { id, tui };
