@@ -190,11 +190,11 @@ function markRemoteConnected(api: TuiPluginApi, device?: string) {
 }
 
 function markRemoteWaiting(api: TuiPluginApi) {
-  const changed = !remoteConnected() || remoteStatus() !== "waiting" || keepAwakeEnabled();
+  const changed = !remoteConnected() || remoteStatus() !== "waiting" || !keepAwakeEnabled();
   if (!changed) return;
   setRemoteConnected(true);
   setRemoteStatus("waiting");
-  setKeepAwake(false);
+  setKeepAwake(true);
   api.renderer.requestRender();
 }
 
