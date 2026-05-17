@@ -173,11 +173,13 @@ export default function App() {
 
   function patchMessages(events: StreamEvent[], sessionId: string) {
     const partUpdates = events.filter((event) => event.type === "message.part.updated" && event.properties.part.sessionID === sessionId);
+    const partDeltas = events.filter((event) => isLiveTextDelta(event, sessionId));
     const partRemovals = events.filter((event) => event.type === "message.part.removed" && event.properties.sessionID === sessionId);
+    const messageUpdated = events.some((event) => event.type === "message.updated" && event.properties.info.sessionID === sessionId);
     const sessionIdle = events.some((event) => event.type === "session.idle" && event.properties.sessionID === sessionId);
-    const nextLiveParts = partUpdates.length || partRemovals.length ? applyLivePartEvents(livePartsRef.current, partUpdates, partRemovals) : livePartsRef.current;
+    const nextLiveParts = partUpdates.length || partDeltas.length || partRemovals.length || messageUpdated ? applyLivePartEvents(livePartsRef.current, partUpdates, partDeltas, partRemovals, sessionId, messageUpdated) : livePartsRef.current;
 
-    if (partUpdates.length || partRemovals.length) {
+    if (partUpdates.length || partDeltas.length || partRemovals.length || messageUpdated) {
       livePartsRef.current = nextLiveParts;
       setLivePartsByMessage(nextLiveParts);
     }
@@ -440,13 +442,14 @@ function commitLiveParts(messages: MessageBundle[], livePartsByMessage: Record<s
   let next = messages;
   for (const parts of Object.values(livePartsByMessage)) {
     for (const part of Object.values(parts)) {
+      if (isSyntheticPart(part)) continue;
       if (part.sessionID === sessionId) next = upsertPart(next, part);
     }
   }
   return next;
 }
 
-function applyLivePartEvents(livePartsByMessage: Record<string, Record<string, Part>>, partUpdates: StreamEvent[], partRemovals: StreamEvent[]) {
+function applyLivePartEvents(livePartsByMessage: Record<string, Record<string, Part>>, partUpdates: StreamEvent[], partDeltas: StreamEvent[], partRemovals: StreamEvent[], sessionId: string, messageUpdated: boolean) {
   let next = livePartsByMessage;
   for (const event of partUpdates) {
     if (event.type !== "message.part.updated") continue;
@@ -455,6 +458,14 @@ function applyLivePartEvents(livePartsByMessage: Record<string, Record<string, P
     const merged = mergePart(messageParts[part.id], part, event.properties.delta);
     if (next === livePartsByMessage) next = { ...livePartsByMessage };
     next[part.messageID] = { ...messageParts, [part.id]: merged };
+    next = removeSyntheticMessage(next, livePartsByMessage, sessionId);
+  }
+  for (const event of partDeltas) {
+    const part = livePartFromDelta(event, next, sessionId);
+    if (!part) continue;
+    const messageParts = next[part.messageID] ?? {};
+    if (next === livePartsByMessage) next = { ...livePartsByMessage };
+    next[part.messageID] = { ...messageParts, [part.id]: part };
   }
   for (const event of partRemovals) {
     if (event.type !== "message.part.removed") continue;
@@ -465,6 +476,74 @@ function applyLivePartEvents(livePartsByMessage: Record<string, Record<string, P
     if (Object.keys(remaining).length) next[event.properties.messageID] = remaining;
     else delete next[event.properties.messageID];
   }
+  if (messageUpdated) next = removeSyntheticMessage(next, livePartsByMessage, sessionId);
+  return next;
+}
+
+function isLiveTextDelta(event: StreamEvent, sessionId: string) {
+  const typed = event as StreamEvent & { properties?: Record<string, unknown> };
+  const type = String(typed.type);
+  const properties = typed.properties;
+  if (!properties || properties.sessionID !== sessionId) return false;
+  return type === "message.part.delta" || type === "session.next.text.delta" || type === "session.next.reasoning.delta" || type === "session.next.text.ended" || type === "session.next.reasoning.ended";
+}
+
+function livePartFromDelta(event: StreamEvent, livePartsByMessage: Record<string, Record<string, Part>>, sessionId: string): Part | undefined {
+  const typed = event as StreamEvent & { properties: Record<string, unknown> };
+  const type = String(typed.type);
+  if (type === "message.part.delta") return messagePartDelta(typed, livePartsByMessage, sessionId);
+  if (type === "session.next.text.delta" || type === "session.next.text.ended") return sessionNextTextPart(typed, livePartsByMessage, sessionId);
+  if (type === "session.next.reasoning.delta" || type === "session.next.reasoning.ended") return sessionNextReasoningPart(typed, livePartsByMessage, sessionId);
+  return undefined;
+}
+
+function isSyntheticPart(part: Part) {
+  return "synthetic" in part && part.synthetic === true;
+}
+
+function messagePartDelta(event: StreamEvent & { properties: Record<string, unknown> }, livePartsByMessage: Record<string, Record<string, Part>>, sessionId: string): Part | undefined {
+  const messageID = typeof event.properties.messageID === "string" ? event.properties.messageID : undefined;
+  const partID = typeof event.properties.partID === "string" ? event.properties.partID : undefined;
+  const delta = typeof event.properties.delta === "string" ? event.properties.delta : "";
+  const field = typeof event.properties.field === "string" ? event.properties.field : "";
+  if (!messageID || !partID || !delta || field !== "text") return undefined;
+
+  const existing = livePartsByMessage[messageID]?.[partID];
+  if (existing?.type === "reasoning") return { ...existing, text: existing.text + delta };
+  if (existing?.type === "text") return { ...existing, text: existing.text + delta };
+  return { id: partID, sessionID: sessionId, messageID, type: "text", text: delta } as Part;
+}
+
+function sessionNextTextPart(event: StreamEvent & { properties: Record<string, unknown> }, livePartsByMessage: Record<string, Record<string, Part>>, sessionId: string): Part | undefined {
+  const id = `live-text-${sessionId}`;
+  const messageID = `live-message-${sessionId}`;
+  const text = typeof event.properties.text === "string" ? event.properties.text : undefined;
+  const delta = typeof event.properties.delta === "string" ? event.properties.delta : "";
+  const existing = livePartsByMessage[messageID]?.[id];
+  const current = existing?.type === "text" ? existing.text : "";
+  const nextText = text ?? current + delta;
+  if (!nextText) return undefined;
+  return { id, sessionID: sessionId, messageID, type: "text", text: nextText, synthetic: true } as Part;
+}
+
+function sessionNextReasoningPart(event: StreamEvent & { properties: Record<string, unknown> }, livePartsByMessage: Record<string, Record<string, Part>>, sessionId: string): Part | undefined {
+  const reasoningID = typeof event.properties.reasoningID === "string" ? event.properties.reasoningID : "default";
+  const id = `live-reasoning-${sessionId}-${reasoningID}`;
+  const messageID = `live-message-${sessionId}`;
+  const text = typeof event.properties.text === "string" ? event.properties.text : undefined;
+  const delta = typeof event.properties.delta === "string" ? event.properties.delta : "";
+  const existing = livePartsByMessage[messageID]?.[id];
+  const current = existing?.type === "reasoning" ? existing.text : "";
+  const nextText = text ?? current + delta;
+  if (!nextText) return undefined;
+  return { id, sessionID: sessionId, messageID, type: "reasoning", text: nextText, synthetic: true, time: { start: Number(event.properties.timestamp) || Date.now() } } as Part;
+}
+
+function removeSyntheticMessage(livePartsByMessage: Record<string, Record<string, Part>>, original: Record<string, Record<string, Part>>, sessionId: string) {
+  const messageID = `live-message-${sessionId}`;
+  if (!livePartsByMessage[messageID]) return livePartsByMessage;
+  const next = livePartsByMessage === original ? { ...livePartsByMessage } : livePartsByMessage;
+  delete next[messageID];
   return next;
 }
 
