@@ -923,8 +923,17 @@ function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<No
   const output = completedToolOutput(part);
   if (/^grep$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={grepToolTitle(part, output, serverDirectory)} />;
   if (/^glob$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={globToolTitle(part, serverDirectory)} />;
+  if (isTodoTool(part.tool) && output) return <TodoOutputBlock output={output} />;
   if (output && shouldRenderToolOutput(part.tool)) return <ToolOutputBlock output={shellDisplayOutput(toolCommandTitle(part, title), output)} />;
   return <EventLine glyph={toolGlyph(part.tool)} tone={toolTone(part.tool)} text={title} />;
+}
+
+function TodoOutputBlock({ output }: { output: string }) {
+  return (
+    <View style={styles.todoOutputBlock}>
+      <Text selectable style={styles.todoOutputText}>{formatTodoOutput(output)}</Text>
+    </View>
+  );
 }
 
 function ToolOutputBlock({ output }: { output: string }) {
@@ -967,6 +976,43 @@ function shellDisplayOutput(command: string, output: string) {
 
 function shouldRenderToolOutput(tool: string) {
   return !/^read$/i.test(tool) && tool !== "apply_patch";
+}
+
+function isTodoTool(tool: string) {
+  return /^todo(write)?$/i.test(tool);
+}
+
+function formatTodoOutput(output: string) {
+  const todos = parseTodoOutput(output);
+  if (!todos.length) return output;
+  return `# Todos\n${todos.map((todo) => `${todoGlyph(todo.status)} \n${todo.content}`).join("\n")}`;
+}
+
+function parseTodoOutput(output: string): Array<{ content: string; status?: string }> {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (Array.isArray(parsed)) return parsed.flatMap((item) => parseTodoItem(item));
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).todos)) {
+      return ((parsed as Record<string, unknown>).todos as unknown[]).flatMap((item) => parseTodoItem(item));
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function parseTodoItem(item: unknown) {
+  if (!item || typeof item !== "object") return [];
+  const record = item as Record<string, unknown>;
+  const content = typeof record.content === "string" ? record.content.trim() : "";
+  const status = typeof record.status === "string" ? record.status : undefined;
+  return content ? [{ content, status }] : [];
+}
+
+function todoGlyph(status?: string) {
+  if (status === "completed") return "[✓]";
+  if (status === "in_progress") return "[•]";
+  return "[ ]";
 }
 
 function completedToolOutput(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
@@ -1414,6 +1460,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     padding: spacing.md,
+  },
+  todoOutputBlock: {
+    backgroundColor: colors.panel,
+    borderRadius: 8,
+    padding: spacing.md,
+  },
+  todoOutputText: {
+    color: colors.text,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 20,
   },
   toolOutputExpandHint: {
     marginLeft: spacing.md,
