@@ -14,28 +14,28 @@
 
 OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your computer, chat, run shell commands, switch models, and approve permissions from a fast mobile interface built for real coding work.
 
-📱 Connect quickly by scanning an OpenCode session QR code.  
-🔎 Find local OpenCode servers automatically on your network.  
-🎛️ Switch models, agents, themes, and reasoning variants from mobile-native menus.  
-⚡ Follow streaming chat output with compact, readable tool activity.  
-💻 Swipe the composer to run shell commands and see output in the same timeline.  
-✅ Approve or reject OpenCode permission requests from your phone, with fallback instructions when needed.  
-🔌 Optionally add the OpenRemote sidebar plugin for QR setup, connection status, and keep-awake controls inside OpenCode.
+* Automatically find OpenCode servers on your local network.
+* Switch models, agents, themes, and reasoning variants from mobile-native menus.
+* Follow streaming chat output with compact, readable tool activity.
+* Swipe the composer to run shell commands and view output inline.
+* Approve or reject OpenCode permission requests from your phone, with fallback instructions when required.
+* Scan a QR code from the TUI sidebar for faster mobile setup. [[with OpenCode plugin](#opencode-plugin)]
+* Keep your system awake while OpenRemote is connected. [[with OpenCode plugin](#opencode-plugin)]
 
 ## Quick Start
 
-Run OpenCode with mDNS:
-
-```sh
-opencode --mdns
-```
-
-Run the app:
+Build and run the app with Xcode installed:
 
 ```sh
 bun install
 bun run device:ios
 bun run dev-client
+```
+
+Run OpenCode with mDNS:
+
+```sh
+opencode --mdns
 ```
 
 On a shared or public network, set a password before starting OpenCode:
@@ -52,11 +52,9 @@ Default connection values:
 - Username: `opencode`
 - Password: empty unless `OPENCODE_SERVER_PASSWORD` is set
 
-## OpenCode Plugin (Optional)
+## OpenCode Plugin
 
-OpenRemote works without the plugin if you connect through mDNS discovery or manual server details.
-
-Install `opencode-openremote` only if you want the OpenRemote sidebar entry, QR code, and keep-awake controls inside OpenCode.
+Install `opencode-openremote` to enable the OpenRemote sidebar QR code and keep-awake while OpenRemote is connected.
 
 Install it in the OpenCode project or user config directory:
 
@@ -64,12 +62,21 @@ Install it in the OpenCode project or user config directory:
 npm install opencode-openremote
 ```
 
-Add the server and TUI entries to `opencode.json`:
+Add the server entry to `opencode.json`:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-openremote", "opencode-openremote/tui"]
+  "plugin": ["opencode-openremote"]
+}
+```
+
+Add the sidebar entry to `tui.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["opencode-openremote/tui"]
 }
 ```
 
