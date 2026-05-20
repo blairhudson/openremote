@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "openremote",
+    "name": "OpenRemote",
     "slug": "openremote",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -39,7 +39,8 @@
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.ACCESS_WIFI_STATE",
-        "android.permission.CHANGE_WIFI_MULTICAST_STATE"
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -61,6 +62,12 @@
           "recordAudioAndroid": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "af281f3d-d7a4-4e46-b53d-e60001f26a7c"
+      }
+    },
+    "owner": "blairhudson"
   }
 }
