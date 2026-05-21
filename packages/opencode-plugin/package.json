@@ -5,13 +5,16 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "opencode-openremote": "./bin/cli.mjs"
+    "opencode-openremote": "bin/cli.mjs"
   },
   "exports": {
     ".": "./src/index.ts",
     "./tui": "./src/tui.tsx"
   },
-  "oc-plugin": ["server", "tui"],
+  "oc-plugin": [
+    "server",
+    "tui"
+  ],
   "files": [
     "bin",
     "src",
