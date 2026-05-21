@@ -1,14 +1,45 @@
 {
   "name": "opencode-openremote",
   "version": "0.1.0",
+  "description": "OpenRemote plugin for OpenCode mobile setup, QR connect, and keep-awake.",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "opencode-openremote": "./bin/cli.mjs"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./tui": "./src/tui.tsx"
   },
   "oc-plugin": ["server", "tui"],
+  "files": [
+    "bin",
+    "src",
+    "package.json",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blairhudson/openremote.git",
+    "directory": "packages/opencode-plugin"
+  },
+  "homepage": "https://openremote.blairhudson.com",
+  "bugs": {
+    "url": "https://github.com/blairhudson/openremote/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "opencode",
+    "openremote",
+    "plugin",
+    "tui",
+    "mobile"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
+    "@clack/prompts": "^0.11.0",
     "@opentui/solid": "^0.2.12",
     "qrcode-terminal": "^0.12.0",
     "solid-js": "^1.9.10"

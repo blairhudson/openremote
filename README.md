@@ -56,13 +56,15 @@ Default connection values:
 
 Install `opencode-openremote` to enable the OpenRemote sidebar QR code and keep-awake while OpenRemote is connected.
 
-Install it in the OpenCode project or user config directory:
+Run the setup wizard. It defaults to the global OpenCode config and asks before writing files:
 
 ```sh
-npm install opencode-openremote
+npx opencode-openremote
 ```
 
-Add the server entry to `opencode.json`:
+OpenCode installs npm plugins automatically at startup and caches packages in `~/.cache/opencode/node_modules/`.
+
+Manual setup: add the server entry to `opencode.json`:
 
 ```json
 {
@@ -80,4 +82,4 @@ Add the sidebar entry to `tui.json`:
 }
 ```
 
-Open the OpenRemote sidebar QR code, then scan it from the app.
+Restart OpenCode after setup. Open the OpenRemote sidebar QR code, then scan it from the app.
