@@ -87,7 +87,9 @@ async function writeConfig(config) {
 
 async function starRepo() {
   try {
-    await run("gh", ["repo", "star", "blairhudson/openremote"], { timeout: 10000 });
+    await run("gh", ["api", "--method", "PUT", "/user/starred/blairhudson/openremote", "--silent"], {
+      timeout: 10000,
+    });
     return true;
   } catch {
     return false;
