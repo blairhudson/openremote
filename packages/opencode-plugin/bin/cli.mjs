@@ -2,9 +2,13 @@
 import { intro, outro, select, confirm, note, spinner, isCancel, cancel } from "@clack/prompts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
 
 const repoUrl = "https://github.com/blairhudson/openremote";
 const docsUrl = "https://openremote.blairhudson.com";
@@ -81,6 +85,15 @@ async function writeConfig(config) {
   await writeFile(config.file, `${JSON.stringify(config.next, null, 2)}\n`);
 }
 
+async function starRepo() {
+  try {
+    await run("gh", ["repo", "star", "blairhudson/openremote"], { timeout: 10000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length > 0) {
@@ -133,7 +146,12 @@ async function main() {
     }),
   );
   if (shouldStar) {
-    note(`Unable to star automatically. Please star the repo at:\n${repoUrl}`, "GitHub");
+    const didStar = await starRepo();
+    if (didStar) {
+      note(`Starred ${repoUrl}`, "GitHub");
+    } else {
+      note(`Unable to star automatically. Please star the repo at:\n${repoUrl}`, "GitHub");
+    }
   }
 
   outro(`Setup complete\n\nRestart opencode for changes to take effect.\nOpenCode will install opencode-openremote automatically.\n\nNext:\n  opencode --mdns\n\nor:\n  opencode --hostname 0.0.0.0\n\nDocs:\n  ${docsUrl}`);

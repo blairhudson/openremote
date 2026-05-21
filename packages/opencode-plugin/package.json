@@ -1,6 +1,6 @@
 {
   "name": "opencode-openremote",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenRemote plugin for OpenCode mobile setup, QR connect, and keep-awake.",
   "type": "module",
   "main": "src/index.ts",
