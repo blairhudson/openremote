@@ -29,3 +29,5 @@ Manual config:
 Restart OpenCode after setup.
 
 Docs: https://openremote.blairhudson.com
+
+License: FSL-1.1-MIT. Copyright 2026 Blair Hudson.

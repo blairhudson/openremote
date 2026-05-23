@@ -3,13 +3,14 @@
 </p>
 
 <p align="center">
-  Remote control for <a href="https://opencode.ai">OpenCode</a> from iPhone.
+  Remote control for <a href="https://opencode.ai">OpenCode</a> from iOS and Android.
 </p>
 
 <p align="center">
   <img alt="Expo" src="https://img.shields.io/badge/Expo-54-000.svg?style=flat-square" />
   <img alt="iOS" src="https://img.shields.io/badge/iOS-dev_client-000.svg?style=flat-square" />
   <img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-remote-000.svg?style=flat-square" />
+  <img alt="License" src="https://img.shields.io/badge/license-FSL--1.1--MIT-000.svg?style=flat-square" />
 </p>
 
 OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your computer, chat, run shell commands, switch models, and approve permissions from a fast mobile interface built for real coding work.
@@ -24,13 +25,16 @@ OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your
 
 ## Quick Start
 
-Build and run the app with Xcode installed:
+Install dependencies:
 
 ```sh
 bun install
-bun run device:ios
-bun run dev-client
 ```
+
+Run the app on iOS or Android using Expo development builds:
+
+- iOS: `bun run dev` for a connected iPhone, or `bun run ios` for the Expo iOS run flow.
+- Android: start an emulator or connect a device, then run `bun run android`.
 
 Run OpenCode with mDNS:
 
@@ -45,6 +49,11 @@ OPENCODE_SERVER_PASSWORD=changeme123 opencode --mdns
 ```
 
 OpenRemote can discover `_opencode._tcp.local.` servers automatically. The optional OpenCode plugin also adds a sidebar QR code for faster setup.
+
+Self-hosting guides:
+
+- [iOS self-hosting](https://openremote.blairhudson.com/docs/self-hosting/ios)
+- [Android self-hosting](https://openremote.blairhudson.com/docs/self-hosting/android)
 
 Default connection values:
 
@@ -83,3 +92,7 @@ Add the sidebar entry to `tui.json`:
 ```
 
 Restart OpenCode after setup. Open the OpenRemote sidebar QR code, then scan it from the app.
+
+## License
+
+OpenRemote is licensed under FSL-1.1-MIT. Copyright 2026 Blair Hudson.
