@@ -11,6 +11,11 @@
         "autoIncrement": true,
         "distribution": "store"
       }
+    },
+    "sideload": {
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {
