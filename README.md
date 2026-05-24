@@ -15,6 +15,10 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-FSL--1.1--MIT-6f42c1.svg?style=flat-square" /></a>
 </p>
 
+<p align="center">
+  <video src="assets/demo.mp4" controls width="720"></video>
+</p>
+
 OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your computer, chat, run shell commands, switch models, and approve permissions from a fast mobile interface built for real coding work.
 
 * Automatically find OpenCode servers on your local network.
