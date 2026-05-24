@@ -16,14 +16,14 @@
     "android": "APP_VARIANT=development expo run:android",
     "ios": "APP_VARIANT=development expo run:ios",
     "web": "expo start --web",
-    "build:android": "eas build --platform android --profile production",
+    "build:android": "bunx eas-cli build --platform android --profile production",
     "build:android:apk": "ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk EAS_LOCAL_BUILD_ARTIFACTS_DIR=dist/releases bunx eas-cli build --platform android --profile sideload --local",
     "checksum:android:apk": "shasum -a 256 dist/releases/*.apk",
     "release:android:apk": "bun run typecheck && bun run build:android:apk && bun run checksum:android:apk",
-    "submit:android": "eas submit --platform android --profile production",
+    "submit:android": "bunx eas-cli submit --platform android --profile production",
     "release:android": "bun run build:android && bun run submit:android",
-    "build:ios": "eas build --platform ios --profile production",
-    "submit:ios": "eas submit --platform ios --profile production",
+    "build:ios": "bunx eas-cli build --platform ios --profile production",
+    "submit:ios": "bunx eas-cli submit --platform ios --profile production",
     "release:ios": "bun run build:ios && bun run submit:ios"
   },
   "dependencies": {
