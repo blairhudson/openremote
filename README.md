@@ -7,10 +7,12 @@
 </p>
 
 <p align="center">
-  <img alt="Expo" src="https://img.shields.io/badge/Expo-54-000.svg?style=flat-square" />
-  <img alt="iOS" src="https://img.shields.io/badge/iOS-dev_client-000.svg?style=flat-square" />
-  <img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-remote-000.svg?style=flat-square" />
-  <img alt="License" src="https://img.shields.io/badge/license-FSL--1.1--MIT-000.svg?style=flat-square" />
+  <a href="https://openremote.blairhudson.com/docs/installation"><img alt="Expo" src="https://img.shields.io/badge/Expo-55-4630EB.svg?style=flat-square" /></a>
+  <a href="https://github.com/blairhudson/openremote/releases/tag/v1.0.0-android-apk"><img alt="Android APK" src="https://img.shields.io/badge/Android_APK-available-3DDC84.svg?style=flat-square" /></a>
+  <a href="https://openremote.blairhudson.com/roadmap"><img alt="iOS" src="https://img.shields.io/badge/iOS-TestFlight_pending-0A84FF.svg?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/opencode-openremote"><img alt="npm" src="https://img.shields.io/npm/v/opencode-openremote?style=flat-square&label=npm&color=CB3837" /></a>
+  <a href="https://opencode.ai"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-remote-000.svg?style=flat-square" /></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-FSL--1.1--MIT-6f42c1.svg?style=flat-square" /></a>
 </p>
 
 OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your computer, chat, run shell commands, switch models, and approve permissions from a fast mobile interface built for real coding work.
@@ -23,75 +25,31 @@ OpenRemote puts OpenCode in your pocket. Connect to the sessions running on your
 * Scan a QR code from the TUI sidebar for faster mobile setup. [[with OpenCode plugin](#opencode-plugin)]
 * Keep your system awake while OpenRemote is connected. [[with OpenCode plugin](#opencode-plugin)]
 
-## Quick Start
+## Start Here
 
-Install dependencies:
+Use the docs as the canonical setup path:
+
+* [Install OpenRemote](https://openremote.blairhudson.com/docs/installation)
+* [Connect OpenRemote to OpenCode](https://openremote.blairhudson.com/docs/getting-started)
+* [Install the optional OpenCode plugin](https://openremote.blairhudson.com/docs/plugin)
+* [Roadmap and app-store status](https://openremote.blairhudson.com/roadmap)
+
+Self-hosting guides:
+
+* [iOS self-hosting](https://openremote.blairhudson.com/docs/self-hosting/ios)
+* [Android self-hosting](https://openremote.blairhudson.com/docs/self-hosting/android)
+
+For local development, install dependencies:
 
 ```sh
 bun install
 ```
 
-Run the app on iOS or Android using Expo development builds:
-
-- iOS: `bun run dev` for a connected iPhone, or `bun run ios` for the Expo iOS run flow.
-- Android: start an emulator or connect a device, then run `bun run android`.
-
-Run OpenCode with mDNS:
-
-```sh
-opencode --mdns
-```
-
-On a shared or public network, set a password before starting OpenCode:
-
-```sh
-OPENCODE_SERVER_PASSWORD=changeme123 opencode --mdns
-```
-
-OpenRemote can discover `_opencode._tcp.local.` servers automatically. The optional OpenCode plugin also adds a sidebar QR code for faster setup.
-
-Self-hosting guides:
-
-- [iOS self-hosting](https://openremote.blairhudson.com/docs/self-hosting/ios)
-- [Android self-hosting](https://openremote.blairhudson.com/docs/self-hosting/android)
-
-Default connection values:
-
-- Server: `http://opencode.local:4096`
-- Username: `opencode`
-- Password: empty unless `OPENCODE_SERVER_PASSWORD` is set
-
 ## OpenCode Plugin
 
-Install `opencode-openremote` to enable the OpenRemote sidebar QR code and keep-awake while OpenRemote is connected.
+The optional OpenCode plugin adds the OpenRemote sidebar QR code and keep-awake while OpenRemote is connected.
 
-Run the setup wizard. It defaults to the global OpenCode config and asks before writing files:
-
-```sh
-npx opencode-openremote
-```
-
-OpenCode installs npm plugins automatically at startup and caches packages in `~/.cache/opencode/node_modules/`.
-
-Manual setup: add the server entry to `opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-openremote"]
-}
-```
-
-Add the sidebar entry to `tui.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-openremote/tui"]
-}
-```
-
-Restart OpenCode after setup. Open the OpenRemote sidebar QR code, then scan it from the app.
+See [OpenCode plugin setup](https://openremote.blairhudson.com/docs/plugin) for the `npx` installer and manual config options.
 
 ## License
 
