@@ -2,7 +2,7 @@
   "expo": {
     "name": "OpenRemote",
     "slug": "openremote",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -34,7 +34,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#151718"
       },
-      "usesCleartextTraffic": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.INTERNET",
@@ -61,6 +60,14 @@
         {
           "cameraPermission": "Allow openremote to scan opencode connection QR codes.",
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

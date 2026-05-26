@@ -10,6 +10,6 @@ Getting started: https://openremote.blairhudson.com/docs/getting-started
 For shared or public Wi-Fi, start OpenCode with password protection.
 
 SHA-256:
-`2530f83c9c17d1b4495cab6c1ae3db8bb4c0ccd231b0809b417fa727c6ccb2f5`
+`81c71f2775824b9ada24be4f033aae99f4e2c958bde56b9198345bb492efec26`
 
 Updates: install newer APK over existing app from future GitHub Releases.

@@ -5,6 +5,7 @@
   "build": {
     "production": {
       "android": {
+        "autoIncrement": true,
         "buildType": "app-bundle"
       },
       "ios": {
@@ -14,13 +15,16 @@
     },
     "sideload": {
       "android": {
+        "autoIncrement": true,
         "buildType": "apk"
       }
     }
   },
   "submit": {
     "production": {
-      "android": {},
+      "android": {
+        "track": "internal"
+      },
       "ios": {}
     }
   }
