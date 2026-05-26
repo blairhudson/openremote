@@ -4,7 +4,7 @@ import { Animated, Easing, FlatList, Keyboard, KeyboardAvoidingView, Modal, PanR
 import Markdown from "react-native-markdown-display";
 
 import { CommandButton, RailPanel, StatusLine, TerminalInput, TerminalText } from "./components";
-import type { AgentInfo, AppConfig, Command, FileDiff, MessageBundle, ModelLimits, OpencodeClient, Part, PermissionRequest, ProviderCatalog, SelectedModel, Session, SessionStatus } from "./opencode";
+import type { AgentInfo, AppConfig, Command, FileDiff, MessageBundle, ModelLimits, OpencodeClient, Part, PermissionRequest, ProviderCatalog, QuestionInfo, QuestionRequest, SelectedModel, Session, SessionStatus } from "./opencode";
 import { colors, fonts, spacing } from "./theme";
 
 type Props = {
@@ -14,6 +14,7 @@ type Props = {
   messages: MessageBundle[];
   livePartsByMessage: Record<string, Record<string, Part>>;
   permissions: PermissionRequest[];
+  questions: QuestionRequest[];
   modelLimits: ModelLimits;
   serverDirectory?: string;
   status?: SessionStatus;
@@ -23,6 +24,8 @@ type Props = {
   onNewSession: () => Promise<Session | undefined>;
   onSessionUpdated: (session: Session) => void;
   onReplyPermission: (requestId: string, reply: "once" | "always" | "reject", message?: string) => Promise<void>;
+  onReplyQuestion: (requestId: string, answers: string[][]) => Promise<void>;
+  onRejectQuestion: (requestId: string) => Promise<void>;
 };
 
 type AgentMode = string;
@@ -66,7 +69,7 @@ const modalCommandNames = new Set<string>(["agents", "help", "models", "themes",
 const themeNames = ["system", "tokyonight", "catppuccin", "gruvbox", "kanagawa", "nord", "rose-pine", "solarized", "dracula"];
 const variantNames = ["default", "none", "low", "medium", "high", "xhigh"];
 
-export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, modelLimits, serverDirectory, status, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission }: Props) {
+export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
   const [prompt, setPrompt] = useState("");
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
   const [selectedModel, setSelectedModel] = useState<SelectedModel | undefined>();
@@ -422,6 +425,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
         onSelectTheme={(theme) => void selectTheme(theme)}
       />
       <PermissionModal permission={permissions[0]} onReply={onReplyPermission} />
+      <QuestionModal request={questions[0]} onReply={onReplyQuestion} onReject={onRejectQuestion} />
     </KeyboardAvoidingView>
   );
 }
@@ -770,6 +774,167 @@ function PermissionModal({
   );
 }
 
+function QuestionModal({
+  request,
+  onReply,
+  onReject,
+}: {
+  request?: QuestionRequest;
+  onReply: (requestId: string, answers: string[][]) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+}) {
+  const [tab, setTab] = useState(0);
+  const [answers, setAnswers] = useState<string[][]>([]);
+  const [custom, setCustom] = useState<string[]>([]);
+  const [editingCustom, setEditingCustom] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const question = request?.questions[tab];
+  const last = request ? tab >= request.questions.length - 1 : false;
+
+  useEffect(() => {
+    setTab(0);
+    setAnswers([]);
+    setCustom([]);
+    setEditingCustom(false);
+    setBusy(false);
+    setError(null);
+  }, [request?.id]);
+
+  function picked(value: string) {
+    return answers[tab]?.includes(value) ?? false;
+  }
+
+  function setQuestionAnswers(next: string[]) {
+    setAnswers((current) => {
+      const copy = [...current];
+      copy[tab] = next;
+      return copy;
+    });
+  }
+
+  function selectOption(label: string, info: QuestionInfo) {
+    setEditingCustom(false);
+    if (info.multiple) {
+      const current = answers[tab] ?? [];
+      setQuestionAnswers(current.includes(label) ? current.filter((item) => item !== label) : [...current, label]);
+      return;
+    }
+    setQuestionAnswers([label]);
+  }
+
+  function updateCustom(value: string) {
+    setCustom((current) => {
+      const copy = [...current];
+      copy[tab] = value;
+      return copy;
+    });
+    const trimmed = value.trim();
+    if (!question) return;
+    if (!trimmed) {
+      const previous = custom[tab]?.trim();
+      if (previous) setQuestionAnswers((answers[tab] ?? []).filter((item) => item !== previous));
+      return;
+    }
+    if (question.multiple) {
+      const previous = custom[tab]?.trim();
+      const withoutPrevious = previous ? (answers[tab] ?? []).filter((item) => item !== previous) : answers[tab] ?? [];
+      setQuestionAnswers(withoutPrevious.includes(trimmed) ? withoutPrevious : [...withoutPrevious, trimmed]);
+      return;
+    }
+    setQuestionAnswers([trimmed]);
+  }
+
+  function goTab(next: number) {
+    if (!request || busy) return;
+    setTab(Math.max(0, Math.min(request.questions.length - 1, next)));
+    setEditingCustom(false);
+  }
+
+  async function submit() {
+    if (!request || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onReply(request.id, Array.from({ length: request.questions.length }, (_, index) => answers[index] ?? []));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "question reply failed");
+      setBusy(false);
+    }
+  }
+
+  async function reject() {
+    if (!request || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onReject(request.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "question reject failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal animationType="fade" transparent visible={!!request} onRequestClose={() => undefined}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalAvoider}>
+        <View style={styles.modalScrim}>
+          <View style={[styles.actionModal, styles.questionModal]}>
+            <StatusLine left={<TerminalText tone="yellow" bold>Question {request ? `${tab + 1}/${request.questions.length}` : ""}</TerminalText>} />
+            {request && question ? (
+              <View style={styles.questionBody}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.questionTabs}>
+                  {request.questions.map((item, index) => {
+                    const selected = index === tab;
+                    const answered = (answers[index]?.length ?? 0) > 0;
+                    return (
+                      <Pressable key={`${request.id}:${index}`} style={[styles.questionTab, selected && styles.questionTabActive, answered && !selected && styles.questionTabAnswered]} onPress={() => goTab(index)}>
+                        <TerminalText tone={selected ? "text" : answered ? "green" : "muted"} bold>{item.header || `Question ${index + 1}`}</TerminalText>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+                <TerminalText tone="text" bold size={18}>{question.question}</TerminalText>
+                <TerminalText tone="muted">{question.multiple ? "pick one or more" : "pick one"}</TerminalText>
+                <ScrollView style={styles.questionOptions} keyboardShouldPersistTaps="handled">
+                  {question.options.map((option) => (
+                    <Pressable key={option.label} style={[styles.questionOption, picked(option.label) && styles.questionOptionPicked]} onPress={() => selectOption(option.label, question)}>
+                      <View style={[styles.questionOptionMark, picked(option.label) && styles.questionOptionMarkPicked]}>
+                        <TerminalText tone={picked(option.label) ? "text" : "muted"} bold>{question.multiple ? (picked(option.label) ? "✓" : " ") : picked(option.label) ? "•" : " "}</TerminalText>
+                      </View>
+                      <View style={styles.questionOptionText}>
+                        <TerminalText tone={picked(option.label) ? "pink" : "cyan"} bold>{option.label}</TerminalText>
+                        <TerminalText tone="muted" size={14}>{option.description}</TerminalText>
+                      </View>
+                    </Pressable>
+                  ))}
+                  {question.custom !== false ? (
+                    <Pressable style={[styles.questionOption, picked(custom[tab]?.trim() ?? "") && styles.questionOptionPicked]} onPress={() => setEditingCustom(true)}>
+                      <View style={[styles.questionOptionMark, picked(custom[tab]?.trim() ?? "") && styles.questionOptionMarkPicked]}>
+                        <TerminalText tone={picked(custom[tab]?.trim() ?? "") ? "text" : "muted"} bold>{question.multiple ? (picked(custom[tab]?.trim() ?? "") ? "✓" : " ") : picked(custom[tab]?.trim() ?? "") ? "•" : " "}</TerminalText>
+                      </View>
+                      <View style={styles.questionOptionText}>
+                        <TerminalText tone={editingCustom ? "pink" : "cyan"} bold>Type your own answer</TerminalText>
+                        {editingCustom ? <TerminalInput autoFocus value={custom[tab] ?? ""} onChangeText={updateCustom} placeholder="type answer" multiline /> : <TerminalText tone="muted" size={14}>{custom[tab]?.trim() || "Custom response"}</TerminalText>}
+                      </View>
+                    </Pressable>
+                  ) : null}
+                </ScrollView>
+                {error ? <TerminalText tone="red">{error}</TerminalText> : null}
+                <View style={styles.questionFooter}>
+                  <CommandButton label="dismiss" tone="muted" onPress={() => void reject()} />
+                  {tab > 0 ? <CommandButton label="back" tone="cyan" onPress={() => goTab(tab - 1)} /> : null}
+                  <CommandButton label={busy ? "wait" : last ? "submit" : "next"} tone={last ? "green" : "cyan"} onPress={() => (last ? void submit() : goTab(tab + 1))} />
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function CommandPickerModal({
   agents,
   commands,
@@ -906,6 +1071,7 @@ const PartLine = memo(function PartLine({ part, isLive, patchDiffs, serverDirect
 
 function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
   const title = toolTitle(part);
+  if (/^question$/i.test(part.tool)) return <EventLine glyph="?" tone="pink" text={questionToolTitle(part)} />;
   if (/^read$/i.test(part.tool)) return <EventLine glyph="→" tone="cyan" text={`Read ${shortToolPath(part, serverDirectory)}`} />;
   if (part.state.status === "pending" && part.tool === "apply_patch") return <EventLine glyph="~" tone="yellow" text="Preparing patch..." />;
   if (part.state.status === "error") return <EventLine glyph="✕" tone="red" text={part.tool === "apply_patch" ? `Patch failed${compactToolError(part.state.error)}` : `${title}: ${compactToolError(part.state.error, true)}`} />;
@@ -1025,6 +1191,13 @@ function toolCommandTitle(part: Extract<NonNullable<MessageBundle["parts"]>[numb
   const command = input.command ?? input.cmd ?? input.script;
   if (typeof command === "string" && command.trim()) return command.trim();
   return fallback;
+}
+
+function questionToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
+  const input = part.state.input as Record<string, unknown>;
+  const questions = Array.isArray(input.questions) ? input.questions : [];
+  if (!questions.length) return "Asked question";
+  return `Asked ${questions.length} question${questions.length === 1 ? "" : "s"}`;
 }
 
 function grepToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>, output: string, serverDirectory?: string) {
@@ -1656,6 +1829,68 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
+  },
+  questionModal: {
+    maxHeight: "86%",
+  },
+  questionBody: {
+    gap: spacing.md,
+  },
+  questionTabs: {
+    gap: spacing.sm,
+  },
+  questionTab: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  questionTabActive: {
+    backgroundColor: colors.cyan,
+    borderColor: colors.cyan,
+  },
+  questionTabAnswered: {
+    borderColor: colors.green,
+  },
+  questionOptions: {
+    flexGrow: 0,
+    maxHeight: 420,
+  },
+  questionOption: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  questionOptionPicked: {
+    borderColor: colors.pink,
+  },
+  questionOptionMark: {
+    alignItems: "center",
+    backgroundColor: colors.panel2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  questionOptionMarkPicked: {
+    backgroundColor: colors.pink,
+    borderColor: colors.pink,
+  },
+  questionOptionText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  questionFooter: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "flex-end",
   },
   pickerRows: {
     maxHeight: 420,

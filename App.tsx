@@ -5,7 +5,7 @@ import { AppState, Platform, SafeAreaView, StyleSheet, View } from "react-native
 
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
-import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type Part, type PermissionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
+import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
 import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, saveActiveSession, saveConnection, type ConnectionSettings } from "./src/storage";
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
@@ -21,6 +21,7 @@ export default function App() {
   const [messages, setMessages] = useState<MessageBundle[]>([]);
   const [livePartsByMessage, setLivePartsByMessage] = useState<Record<string, Record<string, Part>>>({});
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+  const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [serverDirectory, setServerDirectory] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export default function App() {
     patchSessionStatus(events);
     patchSessions(events);
     patchPermissions(events);
+    patchQuestions(events);
     if (sessionId) patchMessages(events, sessionId);
 
     if (events.some((event) => event.type === "server.connected" || event.type === "session.compacted" || event.type === "session.error")) {
@@ -165,6 +167,27 @@ export default function App() {
           const properties = event.properties as { requestID?: string; permissionID?: string };
           const requestID = properties.requestID ?? properties.permissionID;
           next = next.filter((item) => item.id !== requestID);
+        }
+      }
+      return next;
+    });
+  }
+
+  function patchQuestions(events: StreamEvent[]) {
+    setQuestions((current) => {
+      let next = current;
+      for (const event of events) {
+        if (event.type === "question.asked") {
+          const request = event.properties;
+          const index = next.findIndex((item) => item.id === request.id);
+          if (index === -1) next = [...next, request];
+          else {
+            next = [...next];
+            next[index] = request;
+          }
+        }
+        if (event.type === "question.replied" || event.type === "question.rejected") {
+          next = next.filter((item) => item.id !== event.properties.requestID);
         }
       }
       return next;
@@ -246,6 +269,7 @@ export default function App() {
       setSessions(nextSessions);
       setSessionStatus(await target.sessionStatus());
       setPermissions(await target.permissions());
+      setQuestions(await target.questions().catch(() => []));
       if (sessionId) {
         setMessages(await target.messages(sessionId));
         setLivePartsByMessage((current) => {
@@ -342,6 +366,18 @@ export default function App() {
     setPermissions((current) => current.filter((permission) => permission.id !== requestId));
   }
 
+  async function replyQuestion(requestId: string, answers: string[][]) {
+    if (!client) return;
+    await client.replyQuestion(requestId, answers);
+    setQuestions((current) => current.filter((question) => question.id !== requestId));
+  }
+
+  async function rejectQuestion(requestId: string) {
+    if (!client) return;
+    await client.rejectQuestion(requestId);
+    setQuestions((current) => current.filter((question) => question.id !== requestId));
+  }
+
   async function disconnect() {
     if (client) await announceDisconnected(client);
     await clearConnection();
@@ -352,6 +388,7 @@ export default function App() {
     setModelLimits({});
     setSessionStatus({});
     setPermissions([]);
+    setQuestions([]);
     activeRef.current = null;
     setActive(null);
     setMessages([]);
@@ -368,7 +405,7 @@ export default function App() {
         {!client ? (
           <ConnectScreen initial={settings} busy={busy} error={error} onConnect={connect} />
         ) : active ? (
-          <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} />
+          <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
         ) : (
           <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} />
         )}

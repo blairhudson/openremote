@@ -13,10 +13,27 @@ export type PermissionRequest = {
   always: string[];
   tool?: { messageID: string; callID: string };
 };
+export type QuestionOption = { label: string; description: string };
+export type QuestionInfo = {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+};
+export type QuestionRequest = {
+  id: string;
+  sessionID: string;
+  questions: QuestionInfo[];
+  tool?: { messageID: string; callID: string };
+};
 export type ShellBody = { command: string; agent?: string; model?: SelectedModel };
 type PermissionAskedEvent = { id: string; type: "permission.asked"; properties: PermissionRequest };
 type PermissionRepliedEvent = { id: string; type: "permission.replied"; properties: { sessionID: string; requestID: string; reply: "once" | "always" | "reject" } };
-export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent) & { serverDirectory?: string };
+type QuestionAskedEvent = { id: string; type: "question.asked"; properties: QuestionRequest };
+type QuestionRepliedEvent = { id: string; type: "question.replied"; properties: { sessionID: string; requestID: string; answers: string[][] } };
+type QuestionRejectedEvent = { id: string; type: "question.rejected"; properties: { sessionID: string; requestID: string } };
+export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent) & { serverDirectory?: string };
 
 export type Health = { healthy: boolean; version: string };
 export type MessageBundle = {
@@ -168,11 +185,26 @@ export class OpencodeClient {
     return this.request<PermissionRequest[]>("/permission");
   }
 
+  questions() {
+    return this.request<QuestionRequest[]>("/question");
+  }
+
   replyPermission(requestId: string, reply: "once" | "always" | "reject", message?: string) {
     return this.request<boolean>(`/permission/${encodeURIComponent(requestId)}/reply`, {
       method: "POST",
       body: JSON.stringify({ reply, message: message?.trim() || undefined }),
     });
+  }
+
+  replyQuestion(requestId: string, answers: string[][]) {
+    return this.request<boolean>(`/question/${encodeURIComponent(requestId)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    });
+  }
+
+  rejectQuestion(requestId: string) {
+    return this.request<boolean>(`/question/${encodeURIComponent(requestId)}/reject`, { method: "POST" });
   }
 
   sendPrompt(sessionId: string, text: string, agent: string, model?: SelectedModel) {
