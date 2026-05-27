@@ -33,6 +33,7 @@ const visibleSdkEvents = sdkEvents.filter((event) => eventCoverage(event.type).s
 const renderedSdkParts = sdkPartTypes.filter((part) => renderedParts.has(part) || ignoredParts.has(part));
 const usedExportedTypes = exportedTypes.filter((type) => usedTypes.has(type));
 const runtimeOnlyEvents = [...handledEventStrings].filter((type) => !sdkEvents.some((event) => event.type === type) && type.includes("."));
+const detailHeaders = ["Area", "Item", "Status", "Handler", "Notes"];
 
 const report = [
   "# OpenRemote SDK Coverage",
@@ -41,56 +42,52 @@ const report = [
   "",
   "## Summary",
   "",
-  table(["Area", "Covered", "Total", "Percent"], [
-    ["SDK client methods", implementedMethods.length, sdkMethods.length, percent(implementedMethods.length, sdkMethods.length)],
-    ["SDK event types stored, rendered, or intentionally ignored", visibleSdkEvents.length, sdkEvents.length, percent(visibleSdkEvents.length, sdkEvents.length)],
-    ["SDK message part types rendered or intentionally ignored", renderedSdkParts.length, sdkPartTypes.length, percent(renderedSdkParts.length, sdkPartTypes.length)],
-    ["SDK exported types referenced by app", usedExportedTypes.length, exportedTypes.length, percent(usedExportedTypes.length, exportedTypes.length)],
+  table(detailHeaders, [
+    coverageRow("summary", "SDK client methods", `${implementedMethods.length}/${sdkMethods.length} (${percent(implementedMethods.length, sdkMethods.length)})`, "sdk client", "implemented wrappers calling generated SDK methods"),
+    coverageRow("summary", "SDK events", `${visibleSdkEvents.length}/${sdkEvents.length} (${percent(visibleSdkEvents.length, sdkEvents.length)})`, "event stream", "stored, rendered, or intentionally ignored installed SDK events"),
+    coverageRow("summary", "message parts", `${renderedSdkParts.length}/${sdkPartTypes.length} (${percent(renderedSdkParts.length, sdkPartTypes.length)})`, "transcript", "rendered or intentionally ignored part types"),
+    coverageRow("summary", "exported types", `${usedExportedTypes.length}/${exportedTypes.length} (${percent(usedExportedTypes.length, exportedTypes.length)})`, "typescript", "SDK exported types referenced by app source"),
   ]),
   "",
   `SDK package: \`@opencode-ai/sdk@${sdkPackage.version}\``,
   "",
   "## App Client Wrappers",
   "",
-  table(["Wrapper"], wrappers.map((name) => [`\`${name}\``])),
+  table(detailHeaders, wrappers.map((name) => coverageRow("wrapper", `\`${name}\``, "implemented", "app client", "OpenRemote wrapper method"))),
   "",
   "## SDK Client Methods",
   "",
-  table(["SDK method", "Status"], sdkMethods.map((method) => [`\`${method.id}\``, sdkMethodCalls.has(method.id) ? "implemented" : "not implemented"])),
+  table(detailHeaders, sdkMethods.map((method) => coverageRow("method", `\`${method.id}\``, sdkMethodCalls.has(method.id) ? "implemented" : "not implemented", "sdk client", sdkMethodCalls.has(method.id) ? "called by app wrapper/source" : "no app call detected"))),
   "",
   "## Direct HTTP Routes",
   "",
-  directRoutes.length ? table(["Route", "Reason"], directRoutes.map((route) => [`\`${route}\``, directRouteReason(route)])) : "No direct raw HTTP routes found.",
+  directRoutes.length ? table(detailHeaders, directRoutes.map((route) => coverageRow("route", `\`${route}\``, "direct", "http", directRouteReason(route)))) : "No direct raw HTTP routes found.",
   "",
   "## Events",
   "",
-  table(["SDK event", "Parsed", "Stored", "Rendered", "Ignored", "Notes"], sdkEvents.map((event) => {
+  table(detailHeaders, sdkEvents.map((event) => {
     const coverage = eventCoverage(event.type);
-    return [`\`${event.type}\``, yes(coverage.parsed), yes(coverage.stored), yes(coverage.rendered), yes(coverage.ignored), eventNotes(event.type, coverage)];
-  })),
-  "",
-  "## Runtime Events Outside Installed SDK",
-  "",
-  runtimeOnlyEvents.length ? table(["Event", "Parsed", "Stored", "Rendered", "Ignored", "Notes"], runtimeOnlyEvents.sort().map((type) => {
+    return coverageRow("event", `\`${event.type}\``, eventStatus(coverage), eventHandler(event.type, coverage), `${eventNotes(event.type, coverage)}; installed SDK`);
+  }).concat(runtimeOnlyEvents.sort().map((type) => {
     const coverage = eventCoverage(type);
-    return [`\`${type}\``, yes(coverage.parsed), yes(coverage.stored), yes(coverage.rendered), yes(coverage.ignored), `${eventNotes(type, coverage)}; not present in installed SDK declarations`];
-  })) : "No app-handled runtime events outside installed SDK declarations.",
+    return coverageRow("event", `\`${type}\``, eventStatus(coverage), eventHandler(type, coverage), `${eventNotes(type, coverage)}; runtime-only`);
+  }))),
   "",
   "## Message Part Types",
   "",
-  table(["Part type", "Status", "Notes"], sdkPartTypes.map((part) => {
-    if (ignoredParts.has(part)) return [`\`${part}\``, "intentionally ignored", "no visible mobile row needed"];
+  table(detailHeaders, sdkPartTypes.map((part) => {
+    if (ignoredParts.has(part)) return coverageRow("part", `\`${part}\``, "ignored", "transcript", "no visible mobile row needed");
     const rendered = renderedParts.has(part);
-    return [`\`${part}\``, rendered ? "rendered" : "not handled", partNotes(part)];
+    return coverageRow("part", `\`${part}\``, rendered ? "rendered" : "not implemented", "transcript", partNotes(part));
   })),
   "",
   "## Special Tool Handling",
   "",
-  specialTools.length ? table(["Tool", "Handling"], specialTools.map((tool) => [`\`${tool}\``, toolNotes(tool)])) : "No special tool branches found.",
+  specialTools.length ? table(detailHeaders, specialTools.map((tool) => coverageRow("tool", `\`${tool}\``, "rendered", toolRenderedAs(tool), toolNotes(tool)))) : "No special tool branches found.",
   "",
   "## SDK Exported Type Usage",
   "",
-  table(["Type", "Status"], exportedTypes.map((type) => [`\`${type}\``, usedTypes.has(type) ? "referenced" : "not referenced"])),
+  table(detailHeaders, exportedTypes.map((type) => coverageRow("type", `\`${type}\``, usedTypes.has(type) ? "referenced" : "not referenced", "typescript", usedTypes.has(type) ? "used by app source" : "no app reference detected"))),
   "",
 ].join("\n");
 
@@ -205,6 +202,10 @@ function table(headers, rows) {
   ].join("\n");
 }
 
+function coverageRow(area, item, status, handler, notes) {
+  return [area, item, status, handler, notes];
+}
+
 function percent(value, total) {
   return total ? `${Math.round((value / total) * 100)}%` : "n/a";
 }
@@ -275,10 +276,32 @@ function eventNotes(type, coverage) {
   return "parsed from SSE and available to app, no stored or rendered state";
 }
 
+function eventStatus(coverage) {
+  if (coverage.rendered) return "rendered";
+  if (coverage.stored) return "stored";
+  if (coverage.ignored) return "ignored";
+  if (coverage.parsed) return "parsed";
+  return "not implemented";
+}
+
+function eventHandler(type, coverage) {
+  if (type === "message.part.delta" || type.startsWith("session.next.")) return "streaming transcript";
+  if (type === "message.part.updated" || type === "message.part.removed") return "message part state";
+  if (type === "message.updated" || type === "message.removed") return "message list state";
+  if (type.startsWith("permission.")) return coverage.rendered ? "permission modal" : "permission parsed";
+  if (type.startsWith("question.")) return coverage.rendered ? "question dialog" : "question parsed";
+  if (type === "session.status" || type === "session.idle") return "status state";
+  if (type === "session.created" || type === "session.updated" || type === "session.deleted") return "session list state";
+  if (type === "server.connected" || type === "session.compacted" || type === "session.error") return "refresh trigger";
+  if (coverage.ignored) return "ignored";
+  if (handledEventStrings.has(type)) return "branch only";
+  return "parsed only";
+}
+
 function partNotes(part) {
   const notes = {
     text: "markdown rendered",
-    reasoning: "markdown rendered with muted rail",
+    reasoning: "collapsed by default; markdown title; tap expanded thought to collapse; live square spinner",
     tool: "compact tool rows plus special output blocks",
     file: "file attachment/source row",
     patch: "patch summary opens diff modal",
@@ -292,11 +315,22 @@ function partNotes(part) {
 
 function toolNotes(tool) {
   if (tool === "question") return "native question dialog plus compact transcript row";
+  if (tool === "skill") return "hides full skill_content payload";
   if (tool === "read") return "one-line Read filename row";
   if (tool === "apply_patch") return "compact patch status plus diff modal";
   if (tool === "todo" || tool === "todowrite") return "checklist output block";
   if (tool === "grep" || tool === "glob" || tool === "search" || tool === "find") return "search glyph/title treatment";
   return "special branch or grouped matcher in ChatScreen";
+}
+
+function toolRenderedAs(tool) {
+  if (tool === "question") return "compact row: Asked N questions";
+  if (tool === "skill") return 'compact row: Skill "<name>"';
+  if (tool === "read") return "compact row: Read <path>";
+  if (tool === "apply_patch") return "compact row + patch modal";
+  if (tool === "todo" || tool === "todowrite") return "checklist block";
+  if (tool === "grep" || tool === "glob" || tool === "search" || tool === "find") return "search event row";
+  return "custom transcript branch";
 }
 
 function escapeRegExp(value) {
