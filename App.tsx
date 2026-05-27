@@ -564,6 +564,7 @@ function sessionNextTextPart(event: StreamEvent & { properties: Record<string, u
 }
 
 function sessionNextReasoningPart(event: StreamEvent & { properties: Record<string, unknown> }, livePartsByMessage: Record<string, Record<string, Part>>, sessionId: string): Part | undefined {
+  const ended = String(event.type) === "session.next.reasoning.ended";
   const reasoningID = typeof event.properties.reasoningID === "string" ? event.properties.reasoningID : "default";
   const id = `live-reasoning-${sessionId}-${reasoningID}`;
   const messageID = `live-message-${sessionId}`;
@@ -573,7 +574,10 @@ function sessionNextReasoningPart(event: StreamEvent & { properties: Record<stri
   const current = existing?.type === "reasoning" ? existing.text : "";
   const nextText = text ?? current + delta;
   if (!nextText) return undefined;
-  return { id, sessionID: sessionId, messageID, type: "reasoning", text: nextText, synthetic: true, time: { start: Number(event.properties.timestamp) || Date.now() } } as Part;
+  const timestamp = Number(event.properties.timestamp) || Date.now();
+  const existingTime = existing && "time" in existing ? existing.time : undefined;
+  const start = existingTime && "start" in existingTime && typeof existingTime.start === "number" ? existingTime.start : timestamp;
+  return { id, sessionID: sessionId, messageID, type: "reasoning", text: nextText, synthetic: true, time: ended ? { start, end: timestamp } : { start } } as Part;
 }
 
 function removeSyntheticMessage(livePartsByMessage: Record<string, Record<string, Part>>, original: Record<string, Record<string, Part>>, sessionId: string) {

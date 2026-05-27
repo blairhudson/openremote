@@ -71,6 +71,7 @@ const variantNames = ["default", "none", "low", "medium", "high", "xhigh"];
 
 export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
   const [prompt, setPrompt] = useState("");
+  const [promptInputKey, setPromptInputKey] = useState(0);
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
   const [selectedModel, setSelectedModel] = useState<SelectedModel | undefined>();
   const [selectedVariant, setSelectedVariant] = useState("high");
@@ -189,7 +190,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   async function send() {
     const text = prompt.trim();
     if (!text) return;
-    setPrompt("");
+    resetPromptInput();
     if (text.startsWith("/")) {
       const [name, ...args] = text.slice(1).split(/\s+/);
       const command = slashCommands.find((entry) => entry.name === name);
@@ -206,6 +207,11 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
       setOptimisticBusy(false);
       throw cause;
     }
+  }
+
+  function resetPromptInput() {
+    setPrompt("");
+    setPromptInputKey((value) => value + 1);
   }
 
   async function runSlashCommand(command: SlashCommand, args: string) {
@@ -270,7 +276,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
 
   async function runCommand(command: SlashCommand) {
     const args = prompt.slice(1).trim().split(/\s+/).slice(1).join(" ");
-    setPrompt("");
+    resetPromptInput();
     await runSlashCommand(command, args);
   }
 
@@ -347,10 +353,11 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
           commandMenu={composerPane === "prompt" && slashQuery !== null ? <CommandMenu commands={filteredCommands} query={slashQuery} onSelect={runCommand} /> : null}
           pane={composerPane}
           prompt={prompt}
+          promptInputKey={promptInputKey}
           promptFooter={<View style={[styles.composerFooterRow, styles.composerBar]}>
             <CommandButton label={titleCase(agentMode)} tone={modeTone} onPress={toggleMode} />
             <PromptStatusLine status={promptStatus} onModelPress={() => setModalCommand("models")} onVariantPress={() => setModalCommand("variants")} />
-            <CommandButton label="clear" tone="muted" onPress={() => setPrompt("")} />
+            <CommandButton label="clear" tone="muted" onPress={resetPromptInput} />
           </View>}
           shellCommand={shellCommand}
           shellBusy={shellBusy}
@@ -496,14 +503,14 @@ function ComposerStatus({
   );
 }
 
-function ComposerPager({ commandMenu, pane, prompt, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void }) {
+function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptInputKey: number; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void }) {
   return (
     <View style={styles.composerPager} onLayout={(event) => onLayoutWidth(event.nativeEvent.layout.width)} {...panHandlers}>
       <Animated.View style={[styles.composerPages, { width: width ? width * 2 + spacing.md : undefined, transform: [{ translateX }] }]}>
         <View style={[styles.composerPage, width ? { width } : undefined]}>
           <RailPanel tone={tone} style={styles.composerRailPanel}>
             {commandMenu}
-            <TerminalInput {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
+            <TerminalInput key={promptInputKey} {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
             {promptFooter}
           </RailPanel>
         </View>
@@ -1040,16 +1047,7 @@ function CommandPickerModal({
 
 const PartLine = memo(function PartLine({ part, isLive, patchDiffs, serverDirectory, onOpenPatch }: { part: NonNullable<MessageBundle["parts"]>[number]; isLive: boolean; patchDiffs: PatchDiff[]; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
   if (part.type === "text") return <Markdown style={markdownStyles}>{part.text}</Markdown>;
-  if (part.type === "reasoning") {
-    return (
-      <View style={styles.reasoningBlock}>
-        <View style={styles.reasoningRail} />
-        <View style={styles.reasoningBody}>
-          <Markdown style={reasoningMarkdownStyles}>{part.text}</Markdown>
-        </View>
-      </View>
-    );
-  }
+  if (part.type === "reasoning") return <ReasoningPartLine part={part} isLive={isLive} />;
   if (part.type === "tool") return <ToolPartLine part={part} serverDirectory={serverDirectory} onOpenPatch={onOpenPatch} />;
   if (part.type === "file") {
     return <EventLine glyph="→" tone="cyan" text={`Read ${part.filename ?? part.source?.path ?? part.url}`} />;
@@ -1069,9 +1067,70 @@ const PartLine = memo(function PartLine({ part, isLive, patchDiffs, serverDirect
   return null;
 });
 
+function ReasoningPartLine({ part, isLive }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "reasoning" }>; isLive: boolean }) {
+  const [open, setOpen] = useState(false);
+  const loading = isLive && !part.time?.end;
+  const title = reasoningTitle(part);
+
+  return (
+    <View style={styles.reasoningBlock}>
+      <View style={styles.reasoningRail} />
+      <View style={styles.reasoningBody}>
+        <Pressable style={styles.reasoningHeader} onPress={() => setOpen((value) => !value)}>
+          {loading ? <SquareSpinner /> : <Text style={styles.reasoningChevron}>{open ? "-" : "+"}</Text>}
+          <View style={styles.reasoningTitleWrap}>
+            <Markdown style={reasoningTitleMarkdownStyles}>{title}</Markdown>
+          </View>
+        </Pressable>
+        {open ? (
+          <Pressable onPress={() => setOpen(false)}>
+            <Markdown style={reasoningMarkdownStyles}>{part.text}</Markdown>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function SquareSpinner() {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, {
+          duration: 450,
+          easing: Easing.inOut(Easing.quad),
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          duration: 450,
+          easing: Easing.inOut(Easing.quad),
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress]);
+
+  const opacity = progress.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  return <Animated.View style={[styles.reasoningSpinner, { opacity }]} />;
+}
+
+function reasoningTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "reasoning" }>) {
+  const metadataTitle = part.metadata?.title;
+  if (typeof metadataTitle === "string" && metadataTitle.trim()) return metadataTitle.trim();
+  const firstLine = part.text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  return firstLine || "Thinking";
+}
+
 function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
   const title = toolTitle(part);
   if (/^question$/i.test(part.tool)) return <EventLine glyph="?" tone="pink" text={questionToolTitle(part)} />;
+  if (/^skill$/i.test(part.tool)) return <EventLine glyph="→" tone="cyan" text={skillToolTitle(part)} />;
   if (/^read$/i.test(part.tool)) return <EventLine glyph="→" tone="cyan" text={`Read ${shortToolPath(part, serverDirectory)}`} />;
   if (part.state.status === "pending" && part.tool === "apply_patch") return <EventLine glyph="~" tone="yellow" text="Preparing patch..." />;
   if (part.state.status === "error") return <EventLine glyph="✕" tone="red" text={part.tool === "apply_patch" ? `Patch failed${compactToolError(part.state.error)}` : `${title}: ${compactToolError(part.state.error, true)}`} />;
@@ -1198,6 +1257,12 @@ function questionToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[num
   const questions = Array.isArray(input.questions) ? input.questions : [];
   if (!questions.length) return "Asked question";
   return `Asked ${questions.length} question${questions.length === 1 ? "" : "s"}`;
+}
+
+function skillToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
+  const input = part.state.input as Record<string, unknown>;
+  const name = input.name ?? input.skill;
+  return typeof name === "string" && name.trim() ? `Skill "${name.trim()}"` : "Skill";
 }
 
 function grepToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>, output: string, serverDirectory?: string) {
@@ -1678,6 +1743,34 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.md,
     paddingRight: spacing.md,
   },
+  reasoningHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 22,
+  },
+  reasoningSpinner: {
+    backgroundColor: colors.muted,
+    height: 10,
+    width: 10,
+  },
+  reasoningChevron: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: "center",
+    width: 10,
+  },
+  reasoningTitleWrap: {
+    flex: 1,
+  },
+  reasoningTitle: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+  },
   commandMenu: {
     gap: spacing.sm,
     marginBottom: spacing.md,
@@ -1999,5 +2092,57 @@ const reasoningMarkdownStyles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 16,
     lineHeight: 21,
+  },
+});
+
+const reasoningTitleMarkdownStyles = StyleSheet.create({
+  ...markdownStyles,
+  body: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  paragraph: {
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  heading1: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  heading2: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  heading3: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  strong: {
+    color: colors.muted,
+    fontFamily: fonts.bold,
+  },
+  em: {
+    color: colors.muted,
+    fontStyle: "normal",
+  },
+  code_inline: {
+    backgroundColor: colors.panel2,
+    color: colors.yellow,
+    fontFamily: fonts.regular,
+    fontSize: 13,
   },
 });
