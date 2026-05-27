@@ -1,0 +1,140 @@
+---
+import "../../../styles/global.css";
+import DocsSidebar from "../../../components/DocsSidebar.astro";
+
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote Android Self-Hosting Guide";
+const pageDescription = "Build and run OpenRemote on Android from source with Expo development builds.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content={`${siteUrl}/docs/self-hosting/android`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/docs/self-hosting/android`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell docs-page-shell">
+      <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <div class="topbar-brand-row">
+            <a class="brand" href="/" aria-label="OpenRemote home">
+              <img src="/openremote-wordmark.svg" alt="openremote" />
+            </a>
+            <label class="docs-menu-button" for="docs-menu-toggle" aria-label="Toggle docs navigation" role="button" tabindex="0">
+              <span></span>
+              <span></span>
+              <span></span>
+            </label>
+          </div>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href="https://github.com/blairhudson/openremote" aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+      <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+
+      <div class="docs-layout">
+        <DocsSidebar />
+
+        <article class="docs-content">
+          <header class="docs-header">
+            <h1>Run OpenRemote on Android</h1>
+            <p>Build the app from source with Expo, install it on an Android emulator or device, and connect it to an OpenCode server on your network.</p>
+          </header>
+
+          <section class="guide-section">
+            <h2>Prerequisites</h2>
+            <ul class="guide-list">
+              <li>Android Studio with Android SDK. Expo SDK 54 targets Android 7+ with compile SDK 36.</li>
+              <li>Java 17 active via <code>JAVA_HOME</code>.</li>
+              <li><code>ANDROID_HOME</code> or <code>ANDROID_SDK_ROOT</code>, or <code>android/local.properties</code> when needed.</li>
+              <li>An Android emulator or USB device visible to ADB.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Install dependencies</h2>
+            <pre><code>git clone https://github.com/blairhudson/openremote.git
+cd openremote
+bun install</code></pre>
+          </section>
+
+          <section class="guide-section">
+            <h2>Prepare Android</h2>
+            <p>Start an emulator from Android Studio, then verify ADB can see it:</p>
+            <pre><code>adb devices</code></pre>
+            <p>If <code>adb</code> is not found, add Android SDK platform-tools to your shell path.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Start OpenCode</h2>
+            <p>Use mDNS on physical devices. For manual connections, bind OpenCode to all interfaces.</p>
+            <div class="command-options">
+              <pre><code>opencode --mdns</code></pre>
+              <span>or</span>
+              <pre><code>opencode --hostname 0.0.0.0</code></pre>
+            </div>
+            <h3 class="doc-subheading">Use a password before starting OpenCode on shared or public Wi-Fi:</h3>
+            <pre><code>OPENCODE_SERVER_PASSWORD=changeme123 opencode --mdns</code></pre>
+          </section>
+
+          <section class="guide-section">
+            <h2>Run the Android app</h2>
+            <pre><code>bun run android</code></pre>
+            <p>On the Android emulator, connect to the host machine with <code>10.0.2.2:4096</code>. On a physical device, use discovery or your host's LAN IP.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Discovery and permissions</h2>
+            <p>OpenRemote's Android manifest is generated from <code>app.json</code> and includes internet, network state, Wi-Fi state, multicast, and camera permissions for discovery and QR scanning.</p>
+            <p>The optional plugin adds a TUI sidebar QR code for faster setup:</p>
+            <pre><code>npx opencode-openremote@latest</code></pre>
+          </section>
+
+          <section class="guide-section">
+            <h2>Troubleshooting</h2>
+            <ul class="guide-list">
+              <li>Confirm Java 17 is active before running <code>bun run android</code>.</li>
+              <li>Confirm <code>adb devices</code> lists the emulator or connected device.</li>
+              <li>Use <code>10.0.2.2:4096</code> from the emulator when OpenCode runs on the host machine.</li>
+              <li>If physical-device discovery fails, use <code>opencode --hostname 0.0.0.0</code> and connect to the host LAN IP manually.</li>
+            </ul>
+          </section>
+          <footer class="footer docs-footer">
+            <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+            <span><a class="inline-link" href="/privacy">Privacy</a></span>
+            <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+          </footer>
+        </article>
+      </div>
+    </main>
+  </body>
+</html>

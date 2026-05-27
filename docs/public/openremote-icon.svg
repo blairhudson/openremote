@@ -1,0 +1,9 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#151718"/>
+  <g transform="translate(176 272)">
+    <rect x="0" y="0" width="96" height="96" fill="#A8A8A8"/><rect x="96" y="0" width="96" height="96" fill="#A8A8A8"/><rect x="192" y="0" width="96" height="96" fill="#A8A8A8"/><rect x="0" y="96" width="96" height="96" fill="#A8A8A8"/><rect x="192" y="96" width="96" height="96" fill="#A8A8A8"/><rect x="0" y="192" width="96" height="96" fill="#A8A8A8"/><rect x="192" y="192" width="96" height="96" fill="#A8A8A8"/><rect x="0" y="288" width="96" height="96" fill="#A8A8A8"/><rect x="192" y="288" width="96" height="96" fill="#A8A8A8"/><rect x="0" y="384" width="96" height="96" fill="#A8A8A8"/><rect x="96" y="384" width="96" height="96" fill="#A8A8A8"/><rect x="192" y="384" width="96" height="96" fill="#A8A8A8"/>
+  </g>
+  <g transform="translate(464 272)">
+    <rect x="0" y="0" width="96" height="96" fill="#D0D0D0"/><rect x="96" y="0" width="96" height="96" fill="#D0D0D0"/><rect x="192" y="0" width="96" height="96" fill="#D0D0D0"/><rect x="0" y="96" width="96" height="96" fill="#D0D0D0"/><rect x="288" y="96" width="96" height="96" fill="#D0D0D0"/><rect x="0" y="192" width="96" height="96" fill="#D0D0D0"/><rect x="96" y="192" width="96" height="96" fill="#D0D0D0"/><rect x="192" y="192" width="96" height="96" fill="#D0D0D0"/><rect x="0" y="288" width="96" height="96" fill="#D0D0D0"/><rect x="192" y="288" width="96" height="96" fill="#D0D0D0"/><rect x="0" y="384" width="96" height="96" fill="#D0D0D0"/><rect x="288" y="384" width="96" height="96" fill="#D0D0D0"/>
+  </g>
+</svg>

@@ -1,0 +1,242 @@
+---
+import "../styles/global.css";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote Roadmap";
+const pageDescription = "App store submission updates and planned features.";
+
+const distributionNote = "OpenRemote was open sourced under FSL-1.1-MIT while app-store distribution was being finalized. Android APK releases remain available on GitHub for direct install.";
+
+const timelines = [
+  {
+    title: "App Store (iOS)",
+    icon: "apple",
+    status: "Available in Private Beta",
+    statusTone: "completed",
+    notes: [
+      {
+        date: "2026-05-26",
+        text: "Apple approved the beta release. OpenRemote is now available for TestFlight users to install.",
+      },
+      {
+        date: "2026-05-24",
+        text: "A video demo was provided to Apple per their beta review feedback.",
+      },
+      {
+        date: "2026-05-24",
+        text: "Apple provided beta review feedback. We are addressing the notes before the first group of beta testers receive their TestFlight invite.",
+      },
+      {
+        date: "2026-05-23",
+        text: distributionNote,
+      },
+      {
+        date: "2026-05-20",
+        text: "First iOS build submitted to App Store Connect for TestFlight beta review.",
+      },
+    ],
+  },
+  {
+    title: "Google Play (Android)",
+    icon: "play",
+    status: "Available in Private Beta",
+    statusTone: "completed",
+    notes: [
+      {
+        date: "2026-05-26",
+        text: "Google Play issues are resolved. First beta build is now available for Google Play Internal Testers to install.",
+      },
+      {
+        date: "2026-05-24",
+        text: "First Android APK release published on GitHub for direct install while Google Play access remains under appeal.",
+      },
+      {
+        date: "2026-05-23",
+        text: distributionNote,
+      },
+      {
+        date: "2026-05-22",
+        text: "Google Play identity verification failed and the publishing account was barred. An appeal and escalation ticket have been submitted. Appeal ticket: 5-3057000040459.",
+      },
+    ],
+  },
+];
+
+const features = [
+  {
+    status: "Backlog",
+    title: "In-app keep-awake toggle",
+    text: "Control keep-awake from OpenRemote without changing plugin setup.",
+  },
+  {
+    status: "Backlog",
+    title: "Remote access tunnels",
+    text: "Let OpenRemote connect to OpenCode when phone and desktop are on different networks.",
+  },
+  {
+    status: "Completed",
+    title: "Question answer dialog",
+    text: "Dedicated interface for LLM questions with headers, option lists, custom answers, and multi-question navigation before submitting all answers.",
+    commitHref: "https://github.com/blairhudson/openremote/commit/7620d39",
+    commitRef: "7620d39",
+  },
+  {
+    status: "Planning",
+    title: "Multiple server discovery",
+    text: "Improve the experience when multiple OpenCode servers are running on the same network.",
+  },
+  {
+    status: "Planning",
+    title: "Responsive device support",
+    text: "Improve UX across a larger range of device sizes, especially small screens.",
+  },
+  {
+    status: "Completed",
+    title: "Initial OpenRemote app",
+    text: "Mobile client with sessions, chat, shell, permissions, model controls, QR connect, and LAN discovery.",
+  },
+  {
+    status: "Completed",
+    title: "npx opencode-openremote CLI installer",
+    text: "Setup wizard for adding OpenRemote config to OpenCode.",
+  },
+  {
+    status: "Completed",
+    title: "Initial opencode-openremote plugin",
+    text: "OpenCode plugin providing keep-awake and QR-code auth/connect support.",
+  },
+  {
+    status: "Completed",
+    title: "Landing page and docs",
+    text: "Public website, self-hosting guides, setup docs, and roadmap for OpenRemote.",
+  },
+];
+
+const featureStatusOrder: Record<string, number> = {
+  Planning: 0,
+  Backlog: 1,
+  Completed: 2,
+};
+
+const sortedFeatures = [...features].sort((left, right) => (featureStatusOrder[left.status] ?? 99) - (featureStatusOrder[right.status] ?? 99));
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={`${siteUrl}/roadmap`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/roadmap`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell roadmap-page-shell">
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <a class="brand" href="/" aria-label="OpenRemote home">
+            <img src="/openremote-wordmark.svg" alt="openremote" />
+          </a>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      <section class="roadmap-hero">
+        <h1>Roadmap</h1>
+        <p class="lede">App store submission updates and planned features.</p>
+      </section>
+
+      <section class="roadmap-section" aria-labelledby="submission-timeline-title">
+        <div class="section-heading-row">
+          <h2 id="submission-timeline-title">Submission timeline</h2>
+        </div>
+        <div class="timeline-grid">
+          {timelines.map((timeline) => (
+            <article class="timeline-card">
+              <div class="timeline-card-header">
+                <h3>
+                  {timeline.icon === "apple" ? (
+                    <svg class="platform-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <path fill="currentColor" d="M11.3 0c.1 1-.3 2-1 2.8-.7.8-1.7 1.3-2.7 1.2-.1-1 .3-2 1-2.7C9.3.5 10.4 0 11.3 0ZM14 11.6c-.4.9-.6 1.3-1.1 2.1-.7 1.1-1.7 2.5-2.9 2.5-.6 0-1-.2-1.6-.4-.6-.2-1.2-.4-2-.4-.8 0-1.4.2-2 .4-.6.2-1 .4-1.6.4-1.2 0-2.1-1.3-2.8-2.4C-1.3 11.7-1.5 8.9.6 7.1c.8-.7 1.9-1.1 2.9-1.1.6 0 1.2.2 1.7.4.5.2.9.4 1.2.4.3 0 .8-.2 1.4-.4.6-.2 1.3-.5 2.1-.4.6 0 2.2.2 3.2 1.7-2.8 1.5-2.3 5.4.9 6Z" />
+                    </svg>
+                  ) : (
+                    <svg class="platform-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <path fill="currentColor" d="M1.4.4c.3-.2.7-.2 1.1 0l8 4.5-2 2L1.4.4Zm-.5.8 7 6.8-7 6.8C.8 14.6.8 14.4.8 14V2c0-.4 0-.6.1-.8Zm7.6 7.9 2.1 2-8.1 4.5c-.4.2-.8.2-1.1 0l7.1-6.5Zm2.9-3.8 2.7 1.5c1.2.7 1.2 1.7 0 2.4l-2.7 1.5L9.2 8l2.2-2.7Z" />
+                    </svg>
+                  )}
+                  {timeline.title}
+                </h3>
+                <span class={`status-pill status-pill-${timeline.statusTone}`}>{timeline.status}</span>
+              </div>
+              <ol class="timeline-list">
+                {timeline.notes.map((note) => (
+                  <li>
+                    <time datetime={note.date}>{note.date}</time>
+                    <p>{note.text}</p>
+                  </li>
+                ))}
+              </ol>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section class="roadmap-section" aria-labelledby="feature-roadmap-title">
+        <div class="section-heading-row">
+          <h2 id="feature-roadmap-title">Features</h2>
+        </div>
+        <article class="card roadmap-feedback-card">
+          <p>Want to see something in particular?</p>
+          <div class="open-actions">
+            <a class="button ghost" href={`${repoUrl}/issues/new?template=feature_request.yml`} target="_blank" rel="noreferrer">Request a Feature</a>
+            <a class="button ghost" href={`${repoUrl}/issues/new?template=bug_report.yml`} target="_blank" rel="noreferrer">Report a Bug</a>
+          </div>
+        </article>
+        <div class="feature-roadmap-grid">
+          {sortedFeatures.map((feature) => (
+            <article class="feature-roadmap-card">
+              <div class="feature-status-row">
+                <span class={`status-pill status-pill-${feature.status.toLowerCase()}`}>{feature.status}</span>
+                {feature.commitHref ? <a class="inline-link" href={feature.commitHref} target="_blank" rel="noreferrer">{feature.commitRef}</a> : null}
+              </div>
+              <h3>{feature.title}</h3>
+              <p>{feature.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+        <span><a class="inline-link" href="/privacy">Privacy</a></span>
+        <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+      </footer>
+    </main>
+  </body>
+</html>

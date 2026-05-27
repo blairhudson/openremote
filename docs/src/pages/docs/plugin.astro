@@ -1,0 +1,151 @@
+---
+import "../../styles/global.css";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote Plugin";
+const pageDescription = "Install the optional OpenRemote plugin for OpenCode sidebar QR setup and keep-awake support.";
+const opencodeConfig = `{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-openremote"]
+}`;
+const tuiConfig = `{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["opencode-openremote/tui"]
+}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content={`${siteUrl}/docs/plugin`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/docs/plugin`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell docs-page-shell">
+      <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <div class="topbar-brand-row">
+            <a class="brand" href="/" aria-label="OpenRemote home">
+              <img src="/openremote-wordmark.svg" alt="openremote" />
+            </a>
+            <label class="docs-menu-button" for="docs-menu-toggle" aria-label="Toggle docs navigation" role="button" tabindex="0">
+              <span></span>
+              <span></span>
+              <span></span>
+            </label>
+          </div>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+      <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+
+      <div class="docs-layout">
+        <DocsSidebar />
+
+        <article class="docs-content">
+          <header class="docs-header">
+            <h1>Install the OpenRemote plugin</h1>
+            <p>The plugin is optional. Core OpenRemote connection and discovery work without it.</p>
+          </header>
+
+          <section class="guide-section">
+            <h2>What it adds</h2>
+            <ul class="guide-list">
+              <li>TUI sidebar QR code for fast OpenRemote connection.</li>
+              <li>Keep-awake while OpenRemote is connected.</li>
+              <li>Connection status visible inside OpenCode.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Setup</h2>
+            <p>Use the setup wizard or add the plugin entries manually.</p>
+            <div class="install-tabs plugin-setup-tabs" aria-label="Plugin setup options">
+              <input id="plugin-npx" class="install-radio" type="radio" name="plugin-setup" data-plugin-hash="npx" checked />
+              <input id="plugin-manual" class="install-radio" type="radio" name="plugin-setup" data-plugin-hash="manual" />
+
+              <div class="install-tab-list plugin-tab-list" role="tablist" aria-label="Choose plugin setup path">
+                <label class="install-tab plugin-tab-npx" for="plugin-npx" role="tab">npx installer</label>
+                <label class="install-tab plugin-tab-manual" for="plugin-manual" role="tab">manual config</label>
+              </div>
+
+              <article class="install-panel plugin-panel-npx" role="tabpanel">
+                <h3>npx installer</h3>
+                <p>Run the setup wizard to add OpenRemote to your OpenCode config. It asks before writing files.</p>
+                <pre><code>npx opencode-openremote@latest</code></pre>
+                <p>Restart opencode for changes to take effect.</p>
+              </article>
+
+              <article class="install-panel plugin-panel-manual" role="tabpanel">
+                <h3>manual config</h3>
+                <p>Add the server plugin to <code>opencode.json</code>:</p>
+                <pre><code>{opencodeConfig}</code></pre>
+                <p>Add the TUI sidebar plugin to <code>tui.json</code>:</p>
+                <pre><code>{tuiConfig}</code></pre>
+                <p>Restart opencode for changes to take effect.</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="guide-section">
+            <h2>Connect</h2>
+            <p>Restart OpenCode, open the OpenRemote sidebar QR code, then scan it from the app.</p>
+            <p><a class="inline-link" href="/docs/getting-started">Open the getting started guide</a></p>
+          </section>
+          <footer class="footer docs-footer">
+            <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+            <span><a class="inline-link" href="/privacy">Privacy</a></span>
+            <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+          </footer>
+        </article>
+      </div>
+    </main>
+    <script>
+      const pluginTabs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-plugin-hash]"));
+      const selectPluginTab = () => {
+        const hash = window.location.hash.slice(1);
+        const activeTab = pluginTabs.find((tab) => tab.dataset.pluginHash === hash);
+        if (activeTab) activeTab.checked = true;
+      };
+
+      pluginTabs.forEach((tab) => {
+        tab.addEventListener("change", () => {
+          if (tab.checked) window.history.replaceState(null, "", `#${tab.dataset.pluginHash}`);
+        });
+      });
+      window.addEventListener("hashchange", selectPluginTab);
+      selectPluginTab();
+    </script>
+  </body>
+</html>

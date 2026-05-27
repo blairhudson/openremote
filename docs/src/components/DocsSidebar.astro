@@ -1,0 +1,24 @@
+---
+import { docsNavItems } from "../content/docs-nav";
+
+const activePath = Astro.url.pathname.replace(/\/$/, "");
+const isNavGroup = (item: (typeof docsNavItems)[number]) => "items" in item;
+---
+
+<aside class="docs-sidebar" aria-label="Documentation navigation">
+  <p>Docs</p>
+  {docsNavItems.map((item) => (
+    isNavGroup(item) ? (
+      <details class="docs-nav-group" open={item.items.some((child) => child.href === activePath)}>
+        <summary>{item.label}</summary>
+        <div class="docs-nav-subitems">
+          {item.items.map((child) => (
+            <a class:list={["docs-nav-link", "docs-nav-subitem", { active: child.href === activePath }]} href={child.href}>{child.label}</a>
+          ))}
+        </div>
+      </details>
+    ) : (
+      <a class:list={["docs-nav-link", { active: item.href === activePath }]} href={item.href}>{item.label}</a>
+    )
+  ))}
+</aside>

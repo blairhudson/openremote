@@ -1,0 +1,19 @@
+{
+  "name": "openremote-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "generate:og": "bun scripts/generate-og.mjs",
+    "build": "bun run generate:og && astro check && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/check": "latest",
+    "astro": "latest",
+    "sharp": "latest",
+    "typescript": "latest"
+  },
+  "devDependencies": {}
+}

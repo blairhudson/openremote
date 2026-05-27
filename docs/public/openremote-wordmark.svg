@@ -1,0 +1,18 @@
+<svg width="236" height="25" viewBox="0 0 236 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="scale(5)">
+    <g fill="#A8A8A8">
+      <path d="M0 0h3v1H0zM0 1h1v3H0zM2 1h1v3H2zM0 4h3v1H0z"/>
+      <path transform="translate(3.8 0)" d="M0 0h4v1H0zM0 1h1v4H0zM3 1h1v1H3zM0 2h3v1H0z"/>
+      <path transform="translate(8.6 0)" d="M0 0h4v1H0zM0 1h1v3H0zM0 2h3v1H0zM0 4h4v1H0z"/>
+      <path transform="translate(13.4 0)" d="M0 0h1v5H0zM1 0h2v1H1zM3 1h1v4H3z"/>
+    </g>
+    <g fill="#D0D0D0">
+      <path transform="translate(18.2 0)" d="M0 0h3v1H0zM0 1h1v4H0zM3 1h1v1H3zM0 2h3v1H0zM2 3h1v1H2zM3 4h1v1H3z"/>
+      <path transform="translate(23 0)" d="M0 0h4v1H0zM0 1h1v3H0zM0 2h3v1H0zM0 4h4v1H0z"/>
+      <path transform="translate(27.8 0)" d="M0 0h1v5H0zM1 0h1v1H1zM2 1h1v1H2zM3 0h1v1H3zM4 0h1v5H4z"/>
+      <path transform="translate(33.6 0)" d="M0 0h3v1H0zM0 1h1v3H0zM2 1h1v3H2zM0 4h3v1H0z"/>
+      <path transform="translate(37.4 0)" d="M0 0h5v1H0zM2 1h1v4H2z"/>
+      <path transform="translate(43.2 0)" d="M0 0h4v1H0zM0 1h1v3H0zM0 2h3v1H0zM0 4h4v1H0z"/>
+    </g>
+  </g>
+</svg>

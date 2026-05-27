@@ -1,0 +1,183 @@
+---
+import "../../styles/global.css";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const androidApkReleaseUrl = `${repoUrl}/releases`;
+const pageTitle = "OpenRemote Installation";
+const pageDescription = "Install OpenRemote on Android from GitHub Releases, use TestFlight on iOS when available, or build from source.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content={`${siteUrl}/docs/installation`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/docs/installation`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell docs-page-shell">
+      <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <div class="topbar-brand-row">
+            <a class="brand" href="/" aria-label="OpenRemote home">
+              <img src="/openremote-wordmark.svg" alt="openremote" />
+            </a>
+            <label class="docs-menu-button" for="docs-menu-toggle" aria-label="Toggle docs navigation" role="button" tabindex="0">
+              <span></span>
+              <span></span>
+              <span></span>
+            </label>
+          </div>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+      <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+
+      <div class="docs-layout">
+        <DocsSidebar />
+
+        <article class="docs-content">
+          <header class="docs-header">
+            <h1>Install OpenRemote</h1>
+            <p>Use App Store TestFlight for iOS, Google Play Internal Testing for Android, GitHub Releases for Android APKs, or build the app from source.</p>
+          </header>
+
+          <section class="guide-section">
+            <h2>Choose install path</h2>
+            <p>Select the route that matches your device and how much you want to build yourself.</p>
+            <div class="install-tabs" aria-label="Installation options">
+              <input id="install-app-store-ios" class="install-radio" type="radio" name="install-path" data-install-hash="app-store-ios" checked />
+              <input id="install-google-play-android" class="install-radio" type="radio" name="install-path" data-install-hash="google-play-android" />
+              <input id="install-apk-android" class="install-radio" type="radio" name="install-path" data-install-hash="apk-android" />
+              <input id="install-expo-ios" class="install-radio" type="radio" name="install-path" data-install-hash="expo-ios" />
+              <input id="install-expo-android" class="install-radio" type="radio" name="install-path" data-install-hash="expo-android" />
+
+              <div class="install-tab-list" role="tablist" aria-label="Choose install path">
+                <label class="install-tab install-tab-app-store-ios" for="install-app-store-ios" role="tab">App Store (iOS)</label>
+                <label class="install-tab install-tab-google-play-android" for="install-google-play-android" role="tab">Google Play (Android)</label>
+                <label class="install-tab install-tab-apk-android" for="install-apk-android" role="tab">APK (Android)</label>
+                <label class="install-tab install-tab-expo-ios" for="install-expo-ios" role="tab">Expo (iOS)</label>
+                <label class="install-tab install-tab-expo-android" for="install-expo-android" role="tab">Expo (Android)</label>
+              </div>
+
+              <article class="install-panel install-panel-app-store-ios" role="tabpanel">
+                <h3>App Store (iOS)</h3>
+                <p>OpenRemote is available in private beta through TestFlight.</p>
+                <ul class="guide-list">
+                  <li>App Store (iOS): Available in Private Beta.</li>
+                  <li>Invited TestFlight users can install OpenRemote now.</li>
+                  <li>To request private beta access, message <a class="inline-link" href="https://www.linkedin.com/in/blairhudson/" target="_blank" rel="noreferrer">Blair Hudson</a> or comment on <a class="inline-link" href="https://www.linkedin.com/feed/update/urn:li:activity:7461903327052607488/" target="_blank" rel="noreferrer">this post</a>.</li>
+                  <li>Use Expo (iOS) to build from source if you are not in the private beta.</li>
+                  <li><a class="inline-link" href="/roadmap">View current submission timeline</a>.</li>
+                </ul>
+              </article>
+
+              <article class="install-panel install-panel-google-play-android" role="tabpanel">
+                <h3>Google Play (Android)</h3>
+                <p>OpenRemote is available in private beta through Google Play Internal Testing.</p>
+                <ul class="guide-list">
+                  <li>Google Play (Android): Available in Private Beta.</li>
+                  <li>Google Play Internal Testers can install the first beta build now.</li>
+                  <li>To request private beta access, message <a class="inline-link" href="https://www.linkedin.com/in/blairhudson/" target="_blank" rel="noreferrer">Blair Hudson</a> or comment on <a class="inline-link" href="https://www.linkedin.com/feed/update/urn:li:activity:7461903327052607488/" target="_blank" rel="noreferrer">this post</a>.</li>
+                  <li>Use APK (Android) for direct release installs outside Google Play testing.</li>
+                  <li>Use Expo (Android) when you want to build from source.</li>
+                  <li><a class="inline-link" href="/roadmap">View current submission timeline</a>.</li>
+                </ul>
+              </article>
+
+              <article class="install-panel install-panel-apk-android" role="tabpanel">
+                <h3>APK (Android)</h3>
+                <p>Download the latest signed APK from GitHub Releases.</p>
+                <p><a class="inline-link" href={androidApkReleaseUrl} target="_blank" rel="noreferrer">Download the Android APK release</a></p>
+                <ul class="guide-list">
+                  <li>Download the APK asset from the release.</li>
+                  <li>Open the APK on your Android device.</li>
+                  <li>Allow installs from this source when Android prompts.</li>
+                  <li>Android may show an unknown-app warning because the APK is distributed directly from GitHub instead of Google Play.</li>
+                </ul>
+              </article>
+
+              <article class="install-panel install-panel-expo-ios" role="tabpanel">
+                <h3>Expo (iOS)</h3>
+                <p>Build and run OpenRemote from source on your own iPhone with Expo and Xcode.</p>
+                <ul class="guide-list">
+                  <li>Use this when TestFlight is unavailable or you want local control.</li>
+                  <li>Requires macOS, Xcode 16.1+, iOS 15.1+, Node 20.19.x, and Expo SDK 54 tooling.</li>
+                  <li><a class="inline-link" href="/docs/self-hosting/ios">Open the iOS self-hosting guide</a>.</li>
+                </ul>
+              </article>
+
+              <article class="install-panel install-panel-expo-android" role="tabpanel">
+                <h3>Expo (Android)</h3>
+                <p>Build and run OpenRemote from source on Android with Expo and Android Studio tooling.</p>
+                <ul class="guide-list">
+                  <li>Use this when you want a local development build instead of a release APK.</li>
+                  <li>Requires Java 17, Android SDK platform-tools, Android 7+, Node 20.19.x, and Expo SDK 54 tooling.</li>
+                  <li><a class="inline-link" href="/docs/self-hosting/android">Open the Android self-hosting guide</a>.</li>
+                </ul>
+              </article>
+
+            </div>
+          </section>
+
+          <section class="guide-section">
+            <h2>Next step</h2>
+            <p>After installing OpenRemote, connect it to OpenCode.</p>
+            <p><a class="inline-link" href="/docs/getting-started">Open the getting started guide</a></p>
+          </section>
+          <footer class="footer docs-footer">
+            <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+            <span><a class="inline-link" href="/privacy">Privacy</a></span>
+            <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+          </footer>
+        </article>
+      </div>
+    </main>
+    <script>
+      const installTabs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-install-hash]"));
+      const selectInstallTab = () => {
+        const hash = window.location.hash.slice(1);
+        const activeTab = installTabs.find((tab) => tab.dataset.installHash === hash);
+        if (activeTab) activeTab.checked = true;
+      };
+
+      installTabs.forEach((tab) => {
+        tab.addEventListener("change", () => {
+          if (tab.checked) window.history.replaceState(null, "", `#${tab.dataset.installHash}`);
+        });
+      });
+      window.addEventListener("hashchange", selectInstallTab);
+      selectInstallTab();
+    </script>
+  </body>
+</html>

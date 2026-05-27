@@ -1,0 +1,89 @@
+---
+import "../styles/global.css";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote News";
+const pageDescription = "OpenRemote release updates, app-store progress, and project news.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={`${siteUrl}/news`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/news`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell roadmap-page-shell">
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <a class="brand" href="/" aria-label="OpenRemote home">
+            <img src="/openremote-wordmark.svg" alt="openremote" />
+          </a>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      <header class="roadmap-hero news-hero">
+        <h1>News</h1>
+        <p class="lede">Release notes and distribution updates for OpenRemote.</p>
+      </header>
+
+      <section class="roadmap-section news-section" aria-label="OpenRemote news posts">
+        <article class="news-post">
+          <time datetime="2026-05-26">May 26, 2026</time>
+          <h2>OpenRemote is now in private beta on Android and iOS</h2>
+          <p>OpenRemote is now available in private beta on both iOS and Android.</p>
+          <p>Apple approved the TestFlight beta release, so invited TestFlight users can install OpenRemote on iOS.</p>
+          <p>Google Play issues are resolved, and the first beta build is available for Google Play Internal Testers to install.</p>
+          <p>For current install paths, see the <a class="inline-link" href="/docs/installation">OpenRemote installation guide</a>.</p>
+        </article>
+
+        <article class="news-post">
+          <time datetime="2026-05-24">May 24, 2026</time>
+          <h2>Android APK now available</h2>
+          <p>OpenRemote now has a signed Android APK available from GitHub Releases. Android users can install directly while Google Play distribution remains in progress.</p>
+          <p>Update: OpenRemote is now available in private beta through Google Play Internal Testing, and the signed Android APK remains available for direct install.</p>
+          <p><a class="inline-link" href="/docs/installation#apk-android">Install the Android APK</a></p>
+          <p>OpenRemote has moved through the first public distribution milestones: the app is open source under FSL-1.1-MIT, installation docs are live, the optional OpenCode plugin is documented, and the first Android sideload release is available.</p>
+          <p>iOS TestFlight and Google Play Internal Testing are now available to private beta users.</p>
+          <p>For the current submission timeline and planned features, see the <a class="inline-link" href="/roadmap">OpenRemote roadmap</a>.</p>
+        </article>
+      </section>
+
+      <footer class="footer">
+        <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+        <span><a class="inline-link" href="/privacy">Privacy</a></span>
+        <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+      </footer>
+    </main>
+  </body>
+</html>

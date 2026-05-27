@@ -1,0 +1,277 @@
+---
+import "../styles/global.css";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote - Remote for OpenCode";
+const pageDescription = "OpenRemote connects to OpenCode over your local network so you can chat, switch models, run shell commands, and approve permissions from your phone.";
+const previewImage = `${siteUrl}/og-image.jpg`;
+const demoVideo = `${siteUrl}/openremote-docs.mp4`;
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "OpenRemote",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "iOS, Android",
+  description: pageDescription,
+  url: siteUrl,
+  image: previewImage,
+  video: demoVideo,
+  isAccessibleForFree: true,
+  author: {
+    "@type": "Person",
+    name: "Blair Hudson",
+    url: "https://github.com/blairhudson",
+  },
+  codeRepository: repoUrl,
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta name="application-name" content="OpenRemote" />
+    <meta name="apple-mobile-web-app-title" content="OpenRemote" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={siteUrl} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={previewImage} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:video" content={demoVideo} />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={previewImage} />
+    <link rel="canonical" href={siteUrl} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <link rel="apple-touch-icon" href="/openremote-icon.svg" />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(structuredData)} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <a class="brand" href="/" aria-label="OpenRemote home">
+            <img src="/openremote-wordmark.svg" alt="openremote" />
+          </a>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      <section id="top" class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow beta-pill">Currently in private beta</p>
+          <h1>Control desktop coding sessions from your phone.</h1>
+          <p class="lede">OpenRemote connects to OpenCode over your local network so you can chat, switch models, run shell commands, and approve permissions without staying at your desk.</p>
+          <div class="actions" aria-label="Primary actions">
+            <label id="join-beta" class="button primary" for="beta-access-toggle" role="button" tabindex="0">Join the Beta</label>
+            <a class="button ghost" href={repoUrl} target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+              GitHub
+            </a>
+          </div>
+        </div>
+
+        <div class="device-frame" aria-label="OpenRemote app video preview">
+          <div class="phone-shell">
+            <video class="app-video" autoplay muted loop playsinline poster="/openremote-icon.svg">
+              <source src="/openremote-docs.mp4" type="video/mp4" />
+            </video>
+            <div class="video-fallback">
+              <strong>OpenRemote demo</strong>
+              <span>connect, chat, shell, approve</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-grid" aria-label="OpenRemote features">
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12v10H6z" /><path d="M9 5h9v10" /><path d="M9 12h6" /></svg></span>Live sessions</h2>
+          <p>Open desktop coding sessions and keep context in view.</p>
+        </article>
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M10 7h4" /><path d="M10 12h3" /><path d="M12 18h.01" /></svg></span>Mobile prompts</h2>
+          <p>Send messages from your phone while OpenCode streams back.</p>
+        </article>
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="m8 10 3 2-3 2" /><path d="M13 15h4" /></svg></span>Shell commands</h2>
+          <p>Swipe to terminal input and run commands remotely.</p>
+        </article>
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 2.8 8.3 7 10 4.2-1.7 7-5.6 7-10V6z" /><path d="m9 12 2 2 4-5" /></svg></span>Permission checks</h2>
+          <p>Approve once, approve always, or reject with instructions.</p>
+        </article>
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14" /><path d="M5 17h14" /><path d="M9 5v4" /><path d="M15 15v4" /></svg></span>Model control</h2>
+          <p>Switch Build or Plan and choose connected models.</p>
+        </article>
+        <article>
+          <h2><span class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2" /><circle cx="5" cy="17" r="2" /><circle cx="19" cy="17" r="2" /><path d="M10.4 13.2 6.6 16" /><path d="m13.6 13.2 3.8 2.8" /><path d="M12 10V5" /></svg></span>LAN setup</h2>
+          <p>Discover OpenCode over mDNS or connect manually.</p>
+        </article>
+      </section>
+
+      <section id="beta" class="split-section">
+        <div>
+          <h2>Available for iOS and Android</h2>
+          <p class="section-copy">OpenRemote is built for cross-platform use. Mac, Windows, iOS and Android, in any combo.</p>
+        </div>
+        <div class="platform-tabs" aria-label="Platform availability">
+          <input id="platform-ios" class="platform-radio" type="radio" name="platform" checked />
+          <input id="platform-android" class="platform-radio" type="radio" name="platform" />
+          <div class="platform-tab-list" role="tablist" aria-label="Choose platform">
+            <label class="platform-tab platform-tab-ios" for="platform-ios" role="tab">iOS</label>
+            <label class="platform-tab platform-tab-android" for="platform-android" role="tab">Android</label>
+          </div>
+          <article class="platform-panel platform-panel-ios">
+            <h3>iOS</h3>
+            <p>Run OpenRemote on iOS from source with Expo development builds.</p>
+            <a class="app-store-badge" href="/docs/installation" aria-label="Open installation guide">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M16.7 12.7c0-2.1 1.7-3.1 1.8-3.2-1-1.4-2.5-1.6-3-1.6-1.3-.1-2.5.8-3.1.8-.6 0-1.6-.8-2.7-.7-1.4 0-2.7.8-3.4 2.1-1.5 2.6-.4 6.4 1.1 8.5.7 1 1.5 2.2 2.6 2.1 1 0 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.7 1.1 0 1.8-1 2.5-2 .8-1.2 1.1-2.3 1.1-2.4-.1 0-2.3-.9-2.3-3.6ZM14.6 6.5c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6.9.1 1.9-.5 2.5-1.2Z" />
+              </svg>
+              <span>
+                <small>Install on</small>
+                iOS
+              </span>
+            </a>
+          </article>
+          <article class="platform-panel platform-panel-android">
+            <h3>Android</h3>
+            <p>Run OpenRemote on Android from source with Expo development builds.</p>
+            <a class="play-store-badge" href="/docs/installation#apk-android" aria-label="Open Android APK installation guide">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#00f076" d="M3.8 2.4c-.3.3-.5.8-.5 1.4v16.4c0 .6.2 1.1.6 1.4L13 12 3.8 2.4Z" />
+                <path fill="#00d6ff" d="m16 8.8-3-3L3.8 2.4 13 12l3-3.2Z" />
+                <path fill="#ffce00" d="M13 12 3.9 21.6c.4.3.9.3 1.5 0L16 15.2 13 12Z" />
+                <path fill="#ff3a44" d="m20.1 10.5-4.1-2.4-3 3.9 3 3.2 4.1-2.4c1-.6 1-1.7 0-2.3Z" />
+              </svg>
+              <span>
+                <small>Install on</small>
+                Android
+              </span>
+            </a>
+          </article>
+        </div>
+      </section>
+
+      <section id="help" class="docs-section">
+        <h2>Connect to OpenCode</h2>
+        <div class="docs-grid">
+          <article class="doc-card">
+            <h3>Run OpenCode on your network</h3>
+            <div class="command-options">
+              <pre><code>opencode --mdns</code></pre>
+              <span>or</span>
+              <pre><code>opencode --hostname 0.0.0.0</code></pre>
+            </div>
+            <h3 class="doc-subheading">Use a password before starting OpenCode on shared or public Wi-Fi:</h3>
+            <pre><code>OPENCODE_SERVER_PASSWORD=changeme123 opencode --mdns</code></pre>
+          </article>
+        </div>
+      </section>
+
+      <section id="plugin" class="docs-section">
+        <h2>Install the OpenRemote Plugin</h2>
+        <div class="plugin-feature-grid">
+          <article class="plugin-feature-card plugin-feature-cyan">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h16v14H4z" />
+              <path d="M8 5v14" />
+              <path d="M11 9h5" />
+              <path d="M11 13h3" />
+            </svg>
+            TUI Sidebar
+          </article>
+          <article class="plugin-feature-card plugin-feature-accent">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 5h5v5H5z" />
+              <path d="M14 5h5v5h-5z" />
+              <path d="M5 14h5v5H5z" />
+              <path d="M14 14h2" />
+              <path d="M18 14h1v5h-5v-2" />
+              <path d="M14 19h1" />
+            </svg>
+            QR Code Connect
+          </article>
+          <article class="plugin-feature-card plugin-feature-pink">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4v5l3-3" />
+              <path d="M20 13a8 8 0 1 1-3.1-6.3" />
+              <path d="M12 13h4" />
+            </svg>
+            Keep Awake
+          </article>
+        </div>
+        <div class="docs-grid">
+          <article class="doc-card">
+            <h3>Run the setup wizard</h3>
+            <pre><code>npx opencode-openremote@latest</code></pre>
+            <p>Easily add OpenRemote to your OpenCode config, enable sidebar and keep-awake, and optionally star the repo.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="open" class="split-section open-section">
+        <div>
+          <h2>OpenRemote is Open.</h2>
+          <p class="section-copy">OpenRemote is available under <a class="inline-link" href="https://github.com/blairhudson/openremote/blob/main/LICENSE" target="_blank" rel="noreferrer">FSL-1.1-MIT</a>. You can inspect the code, contribute, and <a class="inline-link" href="/docs/installation">install or self-host</a>.</p>
+        </div>
+        <article class="card open-card">
+          <p>Provide your feedback for the future of OpenRemote:</p>
+          <div class="open-actions">
+            <a class="button ghost" href={`${repoUrl}/issues/new?template=feature_request.yml`} target="_blank" rel="noreferrer">Request a Feature</a>
+            <a class="button ghost" href={`${repoUrl}/issues/new?template=bug_report.yml`} target="_blank" rel="noreferrer">Report a Bug</a>
+          </div>
+        </article>
+      </section>
+
+      <footer class="footer">
+        <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+        <span><a class="inline-link" href="/privacy">Privacy</a></span>
+        <span class="footer-notice">OpenCode &copy; 2026 Anomaly. OpenRemote is not affiliated with, related to, or endorsed by Anomaly. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official information.</span>
+      </footer>
+    </main>
+    <input id="beta-access-toggle" class="modal-toggle" type="checkbox" aria-hidden="true" />
+    <div id="beta-access-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="beta-access-title">
+      <label class="modal-backdrop" for="beta-access-toggle" aria-label="Close beta access modal"></label>
+      <div class="modal-card">
+        <label class="modal-close" for="beta-access-toggle" aria-label="Close beta access modal" role="button" tabindex="0">×</label>
+        <p class="eyebrow">private beta</p>
+        <h2 id="beta-access-title">Request private beta access.</h2>
+        <p>Open signups are coming soon.</p>
+        <p>Android users can install the <a class="inline-link" href="/docs/installation#apk-android">Android APK</a> now. You can also self-host with Expo on <a class="inline-link" href="/docs/self-hosting/ios">iOS</a> and <a class="inline-link" href="/docs/self-hosting/android">Android</a>.</p>
+        <p>Message <a class="inline-link" href="https://www.linkedin.com/in/blairhudson/" target="_blank" rel="noreferrer">
+          <svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="currentColor" d="M14.82 0H1.18C.53 0 0 .51 0 1.14v13.72C0 15.49.53 16 1.18 16h13.64c.65 0 1.18-.51 1.18-1.14V1.14C16 .51 15.47 0 14.82 0ZM4.75 13.64H2.37V6h2.38v7.64ZM3.56 4.96a1.38 1.38 0 1 1 0-2.76 1.38 1.38 0 0 1 0 2.76Zm10.08 8.68h-2.37V9.93c0-.89-.02-2.03-1.24-2.03-1.24 0-1.43.97-1.43 1.96v3.78H6.23V6H8.5v1.04h.03c.32-.6 1.09-1.24 2.24-1.24 2.4 0 2.84 1.58 2.84 3.63v4.21h.03Z" />
+          </svg>
+          Blair Hudson</a> or comment on <a class="inline-link" href="https://www.linkedin.com/feed/update/urn:li:activity:7461903327052607488/" target="_blank" rel="noreferrer">this post</a>.</p>
+      </div>
+    </div>
+  </body>
+</html>
