@@ -137,24 +137,24 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   const composerPanResponder = useMemo(() => {
     const shouldCaptureSwipe = (_: unknown, gesture: { dx: number; dy: number }) => Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3;
     return PanResponder.create({
-    onMoveShouldSetPanResponder: shouldCaptureSwipe,
-    onMoveShouldSetPanResponderCapture: shouldCaptureSwipe,
-    onPanResponderGrant: () => composerTranslateX.stopAnimation(),
-    onPanResponderMove: (_, gesture) => {
-      if (!composerWidth) return;
-      const pageStride = composerWidth + spacing.md;
-      const base = composerPaneRef.current === "shell" ? -pageStride : 0;
-      const next = Math.max(-pageStride, Math.min(0, base + gesture.dx));
-      composerTranslateX.setValue(next);
-    },
-    onPanResponderRelease: (_, gesture) => {
-      if (!composerWidth) return;
-      const threshold = composerWidth * 0.22;
-      const next = gesture.dx < -threshold || gesture.vx < -0.45 ? "shell" : gesture.dx > threshold || gesture.vx > 0.45 ? "prompt" : composerPaneRef.current;
-      slideComposerTo(next);
-    },
-    onPanResponderTerminate: () => slideComposerTo(composerPaneRef.current),
-  });
+      onMoveShouldSetPanResponder: shouldCaptureSwipe,
+      onMoveShouldSetPanResponderCapture: shouldCaptureSwipe,
+      onPanResponderGrant: () => composerTranslateX.stopAnimation(),
+      onPanResponderMove: (_, gesture) => {
+        if (!composerWidth) return;
+        const pageStride = composerWidth + spacing.md;
+        const base = composerPaneRef.current === "shell" ? -pageStride : 0;
+        const next = Math.max(-pageStride, Math.min(0, base + gesture.dx));
+        composerTranslateX.setValue(next);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (!composerWidth) return;
+        const threshold = composerWidth * 0.22;
+        const next = gesture.dx < -threshold || gesture.vx < -0.45 ? "shell" : gesture.dx > threshold || gesture.vx > 0.45 ? "prompt" : composerPaneRef.current;
+        slideComposerTo(next);
+      },
+      onPanResponderTerminate: () => slideComposerTo(composerPaneRef.current),
+    });
   }, [composerTranslateX, composerWidth, slideComposerTo]);
 
   useEffect(() => {
@@ -332,7 +332,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.wrap}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.wrap}>
       <StatusLine
         left={<View style={styles.titleWrap}><TerminalText tone="yellow" bold>{session.title || "session"}</TerminalText></View>}
         right={<CommandButton label="back" tone="muted" onPress={onBack} />}
@@ -506,7 +506,7 @@ function ComposerStatus({
 function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptInputKey: number; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void }) {
   return (
     <View style={styles.composerPager} onLayout={(event) => onLayoutWidth(event.nativeEvent.layout.width)} {...panHandlers}>
-      <Animated.View style={[styles.composerPages, { width: width ? width * 2 + spacing.md : undefined, transform: [{ translateX }] }]}> 
+      <Animated.View style={[styles.composerPages, { width: width ? width * 2 + spacing.md : undefined, transform: [{ translateX }] }]}>
         <View style={[styles.composerPage, width ? { width } : undefined]}>
           <RailPanel tone={tone} style={styles.composerRailPanel}>
             {commandMenu}
@@ -990,8 +990,8 @@ function CommandPickerModal({
             <StatusLine left={<TerminalText tone="yellow" bold>{mode ? `/${mode}` : "commands"}</TerminalText>} right={<CommandButton label="esc" tone="muted" onPress={onClose} />} />
             <TerminalInput autoFocus value={filter} onChangeText={onChangeFilter} placeholder="filter" />
             <ScrollView style={styles.pickerRows} keyboardShouldPersistTaps="handled">
-            {mode === "models"
-              ? modelRows.map((row) => (
+              {mode === "models"
+                ? modelRows.map((row) => (
                   <Pressable key={`${row.providerID}:${row.modelID}`} style={[styles.actionRow, styles.modelRow]} onPress={() => onSelectModel(row)}>
                     <Text ellipsizeMode="tail" numberOfLines={1} style={[styles.modelName, { color: sameModel(selectedModel, row) ? colors.yellow : colors.cyan }]}>
                       {row.modelName}
@@ -1001,43 +1001,43 @@ function CommandPickerModal({
                     </Text>
                   </Pressable>
                 ))
-              : null}
-            {mode === "agents"
-              ? agentRows.map((agent) => (
+                : null}
+              {mode === "agents"
+                ? agentRows.map((agent) => (
                   <Pressable key={agent.name} style={styles.actionRow} onPress={() => onSelectAgent(agent.name)}>
                     <TerminalText tone={selectedAgent === agent.name ? "yellow" : "pink"} bold>{agent.name}</TerminalText>
                     <TerminalText tone="muted">{agent.description || agent.mode || "agent"}</TerminalText>
                   </Pressable>
                 ))
-              : null}
-            {mode === "themes"
-              ? themeRows.map((theme) => (
+                : null}
+              {mode === "themes"
+                ? themeRows.map((theme) => (
                   <Pressable key={theme} style={styles.actionRow} onPress={() => onSelectTheme(theme)}>
                     <TerminalText tone={config?.theme === theme ? "yellow" : "cyan"} bold>{theme}</TerminalText>
                     <TerminalText tone="muted">set interface theme</TerminalText>
                   </Pressable>
                 ))
-              : null}
-            {mode === "variants"
-              ? variantRows.map((variant) => (
-                <Pressable key={variant} style={styles.actionRow} onPress={() => onSelectVariant(variant)}>
-                  <TerminalText tone={selectedVariant === variant ? "yellow" : "cyan"} bold>{variant}</TerminalText>
-                </Pressable>
-              ))
-              : null}
-            {mode === "help"
-              ? commandRows.map((command) => (
+                : null}
+              {mode === "variants"
+                ? variantRows.map((variant) => (
+                  <Pressable key={variant} style={styles.actionRow} onPress={() => onSelectVariant(variant)}>
+                    <TerminalText tone={selectedVariant === variant ? "yellow" : "cyan"} bold>{variant}</TerminalText>
+                  </Pressable>
+                ))
+                : null}
+              {mode === "help"
+                ? commandRows.map((command) => (
                   <View key={command.name} style={styles.actionRow}>
                     <TerminalText tone="cyan" bold>/{command.name}</TerminalText>
                     <TerminalText tone="muted">{command.description || "command"}</TerminalText>
                   </View>
                 ))
-              : null}
-            {mode === "models" && !modelRows.length ? <TerminalText tone="muted">no connected models</TerminalText> : null}
-            {mode === "agents" && !agentRows.length ? <TerminalText tone="muted">no agents</TerminalText> : null}
-            {mode === "themes" && !themeRows.length ? <TerminalText tone="muted">no themes</TerminalText> : null}
-            {mode === "variants" && !variantRows.length ? <TerminalText tone="muted">no variants</TerminalText> : null}
-          </ScrollView>
+                : null}
+              {mode === "models" && !modelRows.length ? <TerminalText tone="muted">no connected models</TerminalText> : null}
+              {mode === "agents" && !agentRows.length ? <TerminalText tone="muted">no agents</TerminalText> : null}
+              {mode === "themes" && !themeRows.length ? <TerminalText tone="muted">no themes</TerminalText> : null}
+              {mode === "variants" && !variantRows.length ? <TerminalText tone="muted">no variants</TerminalText> : null}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </KeyboardAvoidingView>

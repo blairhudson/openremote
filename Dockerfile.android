@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+# Build APK: docker build -f Dockerfile.android --target apk -t openremote-android .
+# Extract APK: docker create --name extract openremote-android && docker cp extract:/app/android/app/build/outputs/apk/release/app-release.apk ./dist/app-release.apk && docker rm extract
+
+FROM oven/bun:1.3.13 AS base
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    openjdk-21-jdk-headless \
+    bash \
+    wget \
+    unzip \
+    ninja-build \
+    git \
+    nodejs \
+    npm \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV ANDROID_HOME=/android
+ENV ANDROID_SDK_ROOT=/android
+ENV PATH=$PATH:/android/cmdline-tools/latest/bin:/android/emulator:/android/cmake/3.22.1/bin
+
+RUN mkdir -p /android/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline.zip && \
+    cd /tmp && unzip -q cmdline.zip && \
+    mkdir -p /android/cmdline-tools/latest && \
+    mv /tmp/cmdline-tools/* /android/cmdline-tools/latest/ && \
+    rm -rf /tmp/cmdline-tools /tmp/cmdline.zip
+
+RUN yes | sdkmanager --licenses
+RUN sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1" "platform-tools"
+
+# ---- deps ----
+FROM base AS deps
+COPY package.json bun.lock ./
+COPY packages/ ./packages/
+RUN bun install --frozen-lockfile
+
+# ---- build ----
+FROM base AS build
+COPY --from=deps /app/node_modules node_modules
+COPY . .
+RUN bunx expo prebuild --platform android --clean && \
+    sed -i 's/gradle-9\.0\.0/gradle-8.14.3/' /app/android/gradle/wrapper/gradle-wrapper.properties
+
+# ---- apk ----
+FROM build AS apk
+WORKDIR /app/android
+RUN ./gradlew assembleRelease --no-daemon
+RUN mkdir -p /app/dist && cp /app/android/app/build/outputs/apk/release/app-release.apk /app/dist/
+
+# ---- export ----
+FROM apk AS export
+WORKDIR /
+RUN tar czf /app.tar.gz -C /app .
