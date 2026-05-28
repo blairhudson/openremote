@@ -36,6 +36,7 @@ type ModalCommand = "agents" | "help" | "models" | "themes" | "variants";
 const COMPOSER_FOOTER_HEIGHT = spacing.sm * 2 + Math.ceil(16 * 1.3) + 2;
 type TranscriptLineProps = {
   bundle: MessageBundle;
+  hasNewerMessage: boolean;
   livePartIds: Set<string>;
   serverDirectory?: string;
   onOpenActions: (bundle: MessageBundle) => void;
@@ -115,7 +116,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     return slashCommands.filter((command) => command.name.toLowerCase().startsWith(slashQuery));
   }, [slashCommands, slashQuery]);
   const renderTranscriptItem = useCallback(
-    ({ item }: { item: MessageBundle }) => <TranscriptLine bundle={item} livePartIds={livePartIds} serverDirectory={serverDirectory} onOpenActions={setActionMessage} onOpenPatch={(patch) => void openPatch(patch)} />,
+    ({ item, index }: { item: MessageBundle; index: number }) => <TranscriptLine bundle={item} hasNewerMessage={index > 0} livePartIds={livePartIds} serverDirectory={serverDirectory} onOpenActions={setActionMessage} onOpenPatch={(patch) => void openPatch(patch)} />,
     [livePartIds, serverDirectory],
   );
   const slideComposerTo = useCallback((next: ComposerPane, animated = true) => {
@@ -567,6 +568,7 @@ function PromptStatusLine({ status, onModelPress, onVariantPress }: { status: Pr
 
 const TranscriptLine = memo(function TranscriptLine({
   bundle,
+  hasNewerMessage,
   livePartIds,
   serverDirectory,
   onOpenActions,
@@ -574,7 +576,7 @@ const TranscriptLine = memo(function TranscriptLine({
 }: TranscriptLineProps) {
   const parts = bundle.parts?.length ? bundle.parts : undefined;
   const toolPatchDiffs = parts?.flatMap((part) => (part.type === "tool" && part.tool === "apply_patch" ? patchDiffsFromTool(part) : [])) ?? [];
-  const content = parts ? parts.map((part) => <PartLine key={part.id} part={part} isLive={livePartIds.has(part.id)} patchDiffs={toolPatchDiffs} serverDirectory={serverDirectory} onOpenPatch={onOpenPatch} />) : <TerminalText tone="muted">...</TerminalText>;
+  const content = parts ? parts.map((part, index) => <PartLine key={part.id} part={part} hasNewerMessage={hasNewerMessage || hasLaterTimelinePart(parts, index)} isLive={livePartIds.has(part.id)} patchDiffs={toolPatchDiffs} serverDirectory={serverDirectory} onOpenPatch={onOpenPatch} />) : <TerminalText tone="muted">...</TerminalText>;
 
   if (bundle.info?.role !== "user") {
     return <View style={styles.assistantMessage}>{content}</View>;
@@ -589,9 +591,13 @@ const TranscriptLine = memo(function TranscriptLine({
 }, sameTranscriptLineProps);
 
 function sameTranscriptLineProps(left: TranscriptLineProps, right: TranscriptLineProps) {
-  if (left.bundle !== right.bundle || left.serverDirectory !== right.serverDirectory || left.onOpenActions !== right.onOpenActions || left.onOpenPatch !== right.onOpenPatch) return false;
+  if (left.bundle !== right.bundle || left.hasNewerMessage !== right.hasNewerMessage || left.serverDirectory !== right.serverDirectory || left.onOpenActions !== right.onOpenActions || left.onOpenPatch !== right.onOpenPatch) return false;
   const parts = left.bundle.parts ?? [];
   return parts.every((part) => left.livePartIds.has(part.id) === right.livePartIds.has(part.id));
+}
+
+function hasLaterTimelinePart(parts: NonNullable<MessageBundle["parts"]>, index: number) {
+  return parts.slice(index + 1).some((part) => part.type !== "snapshot" && part.type !== "step-start" && part.type !== "step-finish");
 }
 
 function PatchDiffModal({
@@ -1049,9 +1055,9 @@ function CommandPickerModal({
   );
 }
 
-const PartLine = memo(function PartLine({ part, isLive, patchDiffs, serverDirectory, onOpenPatch }: { part: NonNullable<MessageBundle["parts"]>[number]; isLive: boolean; patchDiffs: PatchDiff[]; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
+const PartLine = memo(function PartLine({ part, hasNewerMessage, isLive, patchDiffs, serverDirectory, onOpenPatch }: { part: NonNullable<MessageBundle["parts"]>[number]; hasNewerMessage: boolean; isLive: boolean; patchDiffs: PatchDiff[]; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
   if (part.type === "text") return <Markdown style={markdownStyles}>{part.text}</Markdown>;
-  if (part.type === "reasoning") return <ReasoningPartLine part={part} isLive={isLive} />;
+  if (part.type === "reasoning") return <ReasoningPartLine part={part} hasNewerMessage={hasNewerMessage} isLive={isLive} />;
   if (part.type === "tool") return <ToolPartLine part={part} serverDirectory={serverDirectory} onOpenPatch={onOpenPatch} />;
   if (part.type === "file") {
     return <EventLine glyph="→" tone="cyan" text={`Read ${part.filename ?? part.source?.path ?? part.url}`} />;
@@ -1071,14 +1077,15 @@ const PartLine = memo(function PartLine({ part, isLive, patchDiffs, serverDirect
   return null;
 });
 
-function ReasoningPartLine({ part, isLive }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "reasoning" }>; isLive: boolean }) {
+function ReasoningPartLine({ part, hasNewerMessage, isLive }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "reasoning" }>; hasNewerMessage: boolean; isLive: boolean }) {
   const [open, setOpen] = useState(false);
   const loading = isLive && !part.time?.end;
   const title = reasoningTitle(part);
+  const body = reasoningBodyText(part.text, title);
+  if (!loading && hasNewerMessage && !body.trim()) return null;
 
   return (
     <View style={styles.reasoningBlock}>
-      <View style={styles.reasoningRail} />
       <View style={styles.reasoningBody}>
         <Pressable style={styles.reasoningHeader} onPress={() => setOpen((value) => !value)}>
           {loading ? <SquareSpinner /> : <Text style={styles.reasoningChevron}>{open ? "-" : "+"}</Text>}
@@ -1088,7 +1095,7 @@ function ReasoningPartLine({ part, isLive }: { part: Extract<NonNullable<Message
         </Pressable>
         {open ? (
           <Pressable onPress={() => setOpen(false)}>
-            <Markdown style={reasoningMarkdownStyles}>{part.text}</Markdown>
+            <Markdown style={reasoningMarkdownStyles}>{body}</Markdown>
           </Pressable>
         ) : null}
       </View>
@@ -1131,6 +1138,18 @@ function reasoningTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number
   return firstLine || "Thinking";
 }
 
+function reasoningBodyText(text: string, title: string) {
+  const lines = text.split(/\r?\n/);
+  const first = lines.findIndex((line) => line.trim());
+  if (first === -1) return "";
+  const normalizedTitle = title.trim().replace(/^#+\s*/, "");
+  const normalizedFirst = lines[first].trim().replace(/^#+\s*/, "");
+  if (normalizedTitle && normalizedFirst === normalizedTitle) {
+    return lines.slice(first + 1).join("\n").trimStart();
+  }
+  return text;
+}
+
 function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
   const title = toolTitle(part);
   if (/^question$/i.test(part.tool)) return <EventLine glyph="?" tone="pink" text={questionToolTitle(part)} />;
@@ -1138,7 +1157,7 @@ function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<No
   if (/^read$/i.test(part.tool)) return <EventLine glyph="→" tone="cyan" text={`Read ${shortToolPath(part, serverDirectory)}`} />;
   if (part.state.status === "pending" && part.tool === "apply_patch") return <EventLine glyph="~" tone="yellow" text="Preparing patch..." />;
   if (part.state.status === "error") return <EventLine glyph="✕" tone="red" text={part.tool === "apply_patch" ? `Patch failed${compactToolError(part.state.error)}` : `${title}: ${compactToolError(part.state.error, true)}`} />;
-  if (part.state.status === "running") return <EventLine glyph="→" tone="yellow" text={title} />;
+  if (part.state.status === "running") return <EventLine glyph={isShellCommandTool(part) ? "→" : "⚙"} tone="yellow" text={isShellCommandTool(part) ? title : genericToolTitle(part)} />;
   if (part.tool === "apply_patch") {
     const diffs = patchDiffsFromTool(part);
     if (diffs.length) {
@@ -1153,10 +1172,11 @@ function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<No
   if (/^grep$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={grepToolTitle(part, output, serverDirectory)} />;
   if (/^glob$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={globToolTitle(part, serverDirectory)} />;
   if (isTodoTool(part.tool) && output) return <TodoOutputBlock output={output} />;
-  if (output && shouldRenderToolOutput(part.tool)) {
+  if (output && shouldRenderToolOutput(part)) {
     const command = toolCommandSummary(part, title, serverDirectory);
     return <ToolOutputBlock preview={shellDisplayOutput(command.command, "", command.comment)} output={shellDisplayOutput(command.command, output, command.comment)} />;
   }
+  if (!isShellCommandTool(part)) return <EventLine glyph="⚙" tone="cyan" text={genericToolTitle(part)} />;
   return <EventLine glyph={toolGlyph(part.tool)} tone={toolTone(part.tool)} text={title} />;
 }
 
@@ -1205,8 +1225,13 @@ function shellDisplayOutput(command: string, output: string, comment?: string) {
   return lines.join("\n");
 }
 
-function shouldRenderToolOutput(tool: string) {
-  return !/^read$/i.test(tool) && tool !== "apply_patch";
+function shouldRenderToolOutput(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
+  return isShellCommandTool(part);
+}
+
+function isShellCommandTool(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
+  const input = part.state.input as Record<string, unknown>;
+  return [input.command, input.cmd, input.script].some((value) => typeof value === "string" && value.trim());
 }
 
 function isTodoTool(tool: string) {
@@ -1267,6 +1292,14 @@ function toolCommandSummary(part: Extract<NonNullable<MessageBundle["parts"]>[nu
     ? `${description.trim()}${compactedWorkdir ? ` in ${compactedWorkdir}` : ""}`
     : "";
   return { command: toolCommandTitle(part, fallback), comment };
+}
+
+function genericToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
+  const input = part.state.input as Record<string, unknown>;
+  const params = Object.entries(input)
+    .map(([key, value]) => `${key}=${formatToolValue(value)}`)
+    .join(", ");
+  return `${part.tool}${params ? ` [${params}]` : ""}`;
 }
 
 function questionToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
@@ -1750,16 +1783,10 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   reasoningBlock: {
-    flexDirection: "row",
     marginRight: -spacing.md,
-  },
-  reasoningRail: {
-    backgroundColor: colors.muted,
-    width: 4,
   },
   reasoningBody: {
     flex: 1,
-    paddingLeft: spacing.md,
     paddingRight: spacing.md,
   },
   reasoningHeader: {
@@ -1769,6 +1796,7 @@ const styles = StyleSheet.create({
     minHeight: 22,
   },
   reasoningSpinner: {
+    alignSelf: "center",
     backgroundColor: colors.muted,
     height: 10,
     width: 10,
