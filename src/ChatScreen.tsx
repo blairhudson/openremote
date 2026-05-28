@@ -372,6 +372,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
           onChangeShellCommand={setShellCommand}
           onRunPrompt={send}
           onRunShell={runShell}
+          onToggleMode={toggleMode}
         />
         <ComposerStatus busy={isBusy} context={contextStatus} tone={modeTone} onCommandsPress={() => {
           slideComposerTo("prompt");
@@ -504,8 +505,8 @@ function ComposerStatus({
   );
 }
 
-function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptInputKey: number; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void }) {
-  const runPromptOnReturn = Platform.OS === "web" ? sendOnReturn(onRunPrompt) : undefined;
+function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell, onToggleMode }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptInputKey: number; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void; onToggleMode: () => void }) {
+  const runPromptKeys = Platform.OS === "web" ? promptKeys(onRunPrompt, onToggleMode) : undefined;
   const runShellOnReturn = Platform.OS === "web" ? sendOnReturn(onRunShell) : undefined;
   return (
     <View style={styles.composerPager} onLayout={(event) => onLayoutWidth(event.nativeEvent.layout.width)} {...panHandlers}>
@@ -513,7 +514,7 @@ function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter
         <View style={[styles.composerPage, width ? { width } : undefined]}>
           <RailPanel tone={tone} style={styles.composerRailPanel}>
             {commandMenu}
-            <TerminalInput key={promptInputKey} {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onKeyPress={runPromptOnReturn} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
+            <TerminalInput key={promptInputKey} {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onKeyPress={runPromptKeys} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
             {promptFooter}
           </RailPanel>
         </View>
@@ -536,6 +537,17 @@ function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter
       </View>
     </View>
   );
+}
+
+function promptKeys(onSend: () => void, onToggleMode: () => void) {
+  return (event: { nativeEvent: { key?: string; shiftKey?: boolean; preventDefault?: () => void } }) => {
+    if (event.nativeEvent.key === "Tab") {
+      event.nativeEvent.preventDefault?.();
+      onToggleMode();
+      return;
+    }
+    sendOnReturn(onSend)(event);
+  };
 }
 
 function sendOnReturn(onSend: () => void) {
