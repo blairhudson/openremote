@@ -1153,7 +1153,10 @@ function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<No
   if (/^grep$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={grepToolTitle(part, output, serverDirectory)} />;
   if (/^glob$/i.test(part.tool)) return <EventLine glyph="✱" tone="yellow" text={globToolTitle(part, serverDirectory)} />;
   if (isTodoTool(part.tool) && output) return <TodoOutputBlock output={output} />;
-  if (output && shouldRenderToolOutput(part.tool)) return <ToolOutputBlock output={shellDisplayOutput(toolCommandTitle(part, title), output)} />;
+  if (output && shouldRenderToolOutput(part.tool)) {
+    const command = toolCommandSummary(part, title, serverDirectory);
+    return <ToolOutputBlock preview={shellDisplayOutput(command.command, "", command.comment)} output={shellDisplayOutput(command.command, output, command.comment)} />;
+  }
   return <EventLine glyph={toolGlyph(part.tool)} tone={toolTone(part.tool)} text={title} />;
 }
 
@@ -1165,14 +1168,12 @@ function TodoOutputBlock({ output }: { output: string }) {
   );
 }
 
-function ToolOutputBlock({ output }: { output: string }) {
+function ToolOutputBlock({ preview, output }: { preview: string; output: string }) {
   const [open, setOpen] = useState(false);
-  const outputLines = output.split(/\r?\n/);
-  const expandable = outputLines.length > 5;
-  const previewOutput = expandable ? [...outputLines.slice(0, 4), "..."].join("\n") : output;
+  const expandable = output.trimEnd() !== preview.trimEnd();
   return (
     <Pressable style={[styles.toolOutputBlock, expandable && styles.toolOutputBlockExpandable]} onPress={() => setOpen(true)}>
-      <Text selectable style={styles.toolOutputText}>{previewOutput}</Text>
+      <Text selectable style={styles.toolOutputText}>{preview}</Text>
       {expandable ? (
         <View style={styles.toolOutputExpandHint}>
           <TerminalText tone="dim">tap to expand</TerminalText>
@@ -1197,9 +1198,10 @@ function ToolOutputBlock({ output }: { output: string }) {
   );
 }
 
-function shellDisplayOutput(command: string, output: string) {
+function shellDisplayOutput(command: string, output: string, comment?: string) {
+  const trimmedComment = comment?.trim();
   const trimmedCommand = command.trim();
-  const lines = [trimmedCommand ? `$ ${trimmedCommand}` : "", output.trimEnd()].filter(Boolean);
+  const lines = [trimmedComment ? `# ${trimmedComment.replace(/^#+\s*/, "")}` : "", trimmedCommand ? `$ ${trimmedCommand}` : "", output.trimEnd()].filter(Boolean);
   return lines.join("\n");
 }
 
@@ -1254,6 +1256,17 @@ function toolCommandTitle(part: Extract<NonNullable<MessageBundle["parts"]>[numb
   const command = input.command ?? input.cmd ?? input.script;
   if (typeof command === "string" && command.trim()) return command.trim();
   return fallback;
+}
+
+function toolCommandSummary(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>, fallback: string, serverDirectory?: string) {
+  const input = part.state.input as Record<string, unknown>;
+  const description = input.description;
+  const workdir = input.workdir ?? input.cwd;
+  const compactedWorkdir = typeof workdir === "string" && workdir.trim() ? compactPath(workdir.trim(), serverDirectory) : "";
+  const comment = typeof description === "string" && description.trim()
+    ? `${description.trim()}${compactedWorkdir ? ` in ${compactedWorkdir}` : ""}`
+    : "";
+  return { command: toolCommandTitle(part, fallback), comment };
 }
 
 function questionToolTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
