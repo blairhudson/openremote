@@ -505,19 +505,21 @@ function ComposerStatus({
 }
 
 function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter, shellCommand, shellBusy, tone, translateX, width, panHandlers, onChangePane, onLayoutWidth, onChangePrompt, onChangeShellCommand, onRunPrompt, onRunShell }: { commandMenu: ReactNode; pane: ComposerPane; prompt: string; promptInputKey: number; promptFooter: ReactNode; shellCommand: string; shellBusy: boolean; tone: "yellow" | "pink"; translateX: Animated.Value; width: number; panHandlers: ReturnType<typeof PanResponder.create>["panHandlers"]; onChangePane: (pane: ComposerPane) => void; onLayoutWidth: (width: number) => void; onChangePrompt: (value: string) => void; onChangeShellCommand: (value: string) => void; onRunPrompt: () => void; onRunShell: () => void }) {
+  const runPromptOnReturn = Platform.OS === "web" ? sendOnReturn(onRunPrompt) : undefined;
+  const runShellOnReturn = Platform.OS === "web" ? sendOnReturn(onRunShell) : undefined;
   return (
     <View style={styles.composerPager} onLayout={(event) => onLayoutWidth(event.nativeEvent.layout.width)} {...panHandlers}>
       <Animated.View style={[styles.composerPages, { width: width ? width * 2 + spacing.md : undefined, transform: [{ translateX }] }]}>
         <View style={[styles.composerPage, width ? { width } : undefined]}>
           <RailPanel tone={tone} style={styles.composerRailPanel}>
             {commandMenu}
-            <TerminalInput key={promptInputKey} {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
+            <TerminalInput key={promptInputKey} {...panHandlers} multiline scrollEnabled={false} submitBehavior="submit" value={prompt} onChangeText={onChangePrompt} onKeyPress={runPromptOnReturn} onSubmitEditing={onRunPrompt} placeholder="tap to type, return to send" />
             {promptFooter}
           </RailPanel>
         </View>
         <View style={[styles.composerPage, width ? { width } : undefined]}>
           <RailPanel tone="green" style={styles.composerRailPanel}>
-            <TerminalInput {...panHandlers} autoCapitalize="none" autoCorrect={false} multiline scrollEnabled={false} submitBehavior="submit" value={shellCommand} onChangeText={onChangeShellCommand} onSubmitEditing={onRunShell} placeholder="tap to type, return to send" />
+            <TerminalInput {...panHandlers} autoCapitalize="none" autoCorrect={false} multiline scrollEnabled={false} submitBehavior="submit" value={shellCommand} onChangeText={onChangeShellCommand} onKeyPress={runShellOnReturn} onSubmitEditing={onRunShell} placeholder="tap to type, return to send" />
             <View style={[styles.composerFooterRow, styles.shellInputFooter]}>
               <TerminalText tone="green" bold>{shellBusy ? "running" : "shell"}</TerminalText>
             </View>
@@ -534,6 +536,14 @@ function ComposerPager({ commandMenu, pane, prompt, promptInputKey, promptFooter
       </View>
     </View>
   );
+}
+
+function sendOnReturn(onSend: () => void) {
+  return (event: { nativeEvent: { key?: string; shiftKey?: boolean; preventDefault?: () => void } }) => {
+    if (event.nativeEvent.key !== "Enter" || event.nativeEvent.shiftKey) return;
+    event.nativeEvent.preventDefault?.();
+    onSend();
+  };
 }
 
 type PromptStatus = {
