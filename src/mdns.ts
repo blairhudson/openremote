@@ -21,6 +21,7 @@ type Service = {
 export function useMdnsServers() {
   const [servers, setServers] = useState<DiscoveredServer[]>([]);
   const [searching, setSearching] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchID, setSearchID] = useState(0);
   const search = useCallback(() => setSearchID((value) => value + 1), []);
@@ -28,7 +29,14 @@ export function useMdnsServers() {
   useEffect(() => {
     const browsers: Zeroconf[] = [];
     let mounted = true;
+    if (typeof Zeroconf !== "function") {
+      setSearching(false);
+      setUnavailable(true);
+      setError(null);
+      return;
+    }
     setSearching(true);
+    setUnavailable(false);
     setError(null);
 
     function addServer(service: Service, type: string) {
@@ -46,6 +54,12 @@ export function useMdnsServers() {
     for (const type of ["opencode", "http"]) {
       try {
         const zeroconf = new Zeroconf();
+        if (typeof zeroconf.scan !== "function") {
+          setSearching(false);
+          setUnavailable(true);
+          setError(null);
+          return;
+        }
         zeroconf.on("start", () => mounted && setSearching(true));
         zeroconf.on("stop", () => mounted && setSearching(false));
         zeroconf.on("resolved", (service: unknown) => addServer(service as Service, type));
@@ -56,9 +70,11 @@ export function useMdnsServers() {
         });
         zeroconf.scan(type, "tcp", "local.");
         browsers.push(zeroconf);
-      } catch (cause) {
+      } catch {
         setSearching(false);
-        setError(cause instanceof Error ? cause.message : "mDNS discovery unavailable");
+        setUnavailable(true);
+        setError(null);
+        return;
       }
     }
 
@@ -73,7 +89,7 @@ export function useMdnsServers() {
     };
   }, [searchID]);
 
-  return { servers, searching, error, search };
+  return { servers, searching, unavailable, error, search };
 }
 
 function serverFromService(service: Service, type: string): DiscoveredServer | undefined {

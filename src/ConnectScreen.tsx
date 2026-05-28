@@ -93,16 +93,18 @@ export function ConnectScreen({ initial, busy, error, onConnect }: Props) {
           <TerminalText tone="dim" size={13}>remote control for opencode</TerminalText>
         </View>
 
-        <View style={styles.discoveryBlock}>
-          <Pressable disabled={discovery.searching} onPress={discovery.search}>
-            <TerminalText tone="muted" style={styles.discoveryTitle}>
-              {discovery.searching ? `searching for servers${animatedDots(searchDots)}` : "search for servers"}
-            </TerminalText>
-          </Pressable>
-          {discovery.servers.map((server) => <DiscoveredServerRow key={server.id} server={server} busy={busy} onPress={connectDiscovered} />)}
-          {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13}>no opencode servers found</TerminalText> : null}
-          {discovery.error ? <TerminalText tone="red" size={13}>{discovery.error}</TerminalText> : null}
-        </View>
+        {!discovery.unavailable ? (
+          <View style={styles.discoveryBlock}>
+            <Pressable disabled={discovery.searching} onPress={discovery.search}>
+              <TerminalText tone="muted" style={styles.discoveryTitle}>
+                {discovery.searching ? `searching for servers${animatedDots(searchDots)}` : "search for servers"}
+              </TerminalText>
+            </Pressable>
+            {discovery.servers.map((server) => <DiscoveredServerRow key={server.id} server={server} busy={busy} onPress={connectDiscovered} />)}
+            {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13}>no opencode servers found</TerminalText> : null}
+            {discovery.error ? <TerminalText tone="red" size={13}>{discovery.error}</TerminalText> : null}
+          </View>
+        ) : null}
 
         <RailPanel tone={error ? "red" : "yellow"}>
           <InputLabel label="server" onPress={() => serverInputRef.current?.focus()} />
