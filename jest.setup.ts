@@ -44,6 +44,15 @@ jest.mock("expo-camera", () => ({
   ],
 }));
 
+jest.mock("react-native-safe-area-context", () => {
+  const { View } = require("react-native");
+  return {
+    SafeAreaProvider: View,
+    SafeAreaView: View,
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  };
+});
+
 jest.mock("react-native-zeroconf", () => {
   return jest.fn().mockImplementation(() => ({
     addDeviceListeners: jest.fn(),

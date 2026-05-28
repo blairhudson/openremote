@@ -1,7 +1,8 @@
 import { JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraBold, useFonts } from "@expo-google-fonts/jetbrains-mono";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Platform, SafeAreaView, StyleSheet, View } from "react-native";
+import { AppState, Platform, StyleSheet, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
@@ -401,15 +402,17 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-      <SafeAreaView style={styles.safeArea}>
-        {!client ? (
-          <ConnectScreen initial={settings} busy={busy} error={error} onConnect={connect} />
-        ) : active ? (
-          <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
-        ) : (
-          <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} />
-        )}
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.safeArea}>
+          {!client ? (
+            <ConnectScreen initial={settings} busy={busy} error={error} onConnect={connect} />
+          ) : active ? (
+            <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
+          ) : (
+            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} />
+          )}
+        </SafeAreaView>
+      </SafeAreaProvider>
     </View>
   );
 }
