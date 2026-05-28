@@ -2079,9 +2079,14 @@ const markdownStyles = StyleSheet.create({
     fontStyle: "normal",
   },
   code_inline: {
-    backgroundColor: colors.panel2,
+    backgroundColor: Platform.OS === "web" ? "transparent" : colors.panel2,
+    borderColor: Platform.OS === "web" ? "transparent" : undefined,
+    borderWidth: Platform.OS === "web" ? 0 : undefined,
     color: colors.yellow,
     fontFamily: fonts.regular,
+    paddingHorizontal: Platform.OS === "web" ? 0 : undefined,
+    paddingVertical: Platform.OS === "web" ? 0 : undefined,
+    textDecorationLine: "none",
   },
   fence: {
     backgroundColor: colors.bg,
@@ -2167,9 +2172,14 @@ const reasoningTitleMarkdownStyles = StyleSheet.create({
     fontStyle: "normal",
   },
   code_inline: {
-    backgroundColor: colors.panel2,
+    backgroundColor: Platform.OS === "web" ? "transparent" : colors.panel2,
+    borderColor: Platform.OS === "web" ? "transparent" : undefined,
+    borderWidth: Platform.OS === "web" ? 0 : undefined,
     color: colors.yellow,
     fontFamily: fonts.regular,
     fontSize: 13,
+    paddingHorizontal: Platform.OS === "web" ? 0 : undefined,
+    paddingVertical: Platform.OS === "web" ? 0 : undefined,
+    textDecorationLine: "none",
   },
 });
