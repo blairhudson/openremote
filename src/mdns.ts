@@ -22,7 +22,6 @@ export function useMdnsServers() {
   const [servers, setServers] = useState<DiscoveredServer[]>([]);
   const [searching, setSearching] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [searchID, setSearchID] = useState(0);
   const search = useCallback(() => setSearchID((value) => value + 1), []);
 
@@ -32,12 +31,10 @@ export function useMdnsServers() {
     if (typeof Zeroconf !== "function") {
       setSearching(false);
       setUnavailable(true);
-      setError(null);
       return;
     }
     setSearching(true);
     setUnavailable(false);
-    setError(null);
 
     function addServer(service: Service, type: string) {
       const server = serverFromService(service, type);
@@ -57,23 +54,20 @@ export function useMdnsServers() {
         if (typeof zeroconf.scan !== "function") {
           setSearching(false);
           setUnavailable(true);
-          setError(null);
           return;
         }
         zeroconf.on("start", () => mounted && setSearching(true));
         zeroconf.on("stop", () => mounted && setSearching(false));
         zeroconf.on("resolved", (service: unknown) => addServer(service as Service, type));
-        zeroconf.on("error", (cause: unknown) => {
+        zeroconf.on("error", () => {
           if (!mounted) return;
           setSearching(false);
-          setError(cause instanceof Error ? cause.message : "mDNS discovery failed");
         });
         zeroconf.scan(type, "tcp", "local.");
         browsers.push(zeroconf);
       } catch {
         setSearching(false);
         setUnavailable(true);
-        setError(null);
         return;
       }
     }
@@ -89,7 +83,7 @@ export function useMdnsServers() {
     };
   }, [searchID]);
 
-  return { servers, searching, unavailable, error, search };
+  return { servers, searching, unavailable, search };
 }
 
 function serverFromService(service: Service, type: string): DiscoveredServer | undefined {

@@ -102,7 +102,6 @@ export function ConnectScreen({ initial, busy, error, onConnect }: Props) {
             </Pressable>
             {discovery.servers.map((server) => <DiscoveredServerRow key={server.id} server={server} busy={busy} onPress={connectDiscovered} />)}
             {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13}>no opencode servers found</TerminalText> : null}
-            {discovery.error ? <TerminalText tone="red" size={13}>{discovery.error}</TerminalText> : null}
           </View>
         ) : null}
 
