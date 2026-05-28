@@ -548,15 +548,19 @@ type PatchOpenPayload = { messageID: string; hash: string; files: string[]; diff
 type UnifiedDiffLine = DiffLineValue & { lineNumber?: number };
 
 function PromptStatusLine({ status, onModelPress, onVariantPress }: { status: PromptStatus; onModelPress: () => void; onVariantPress: () => void }) {
+  const showVariant = status.thinking !== "default";
+
   return (
     <View style={styles.promptStatus}>
-      <Pressable onPress={onModelPress} hitSlop={8}>
-        <TerminalText tone="muted" bold>{status.model} {status.provider}</TerminalText>
+      <Pressable style={styles.promptModelStatus} onPress={onModelPress} hitSlop={8}>
+        <TerminalText tone="muted" bold numberOfLines={1} ellipsizeMode="tail" style={styles.promptModelName}>{status.model}</TerminalText>
       </Pressable>
-      <TerminalText tone="muted">•</TerminalText>
-      <Pressable onPress={onVariantPress} hitSlop={8}>
-        <TerminalText tone="yellow" bold>{status.thinking}</TerminalText>
-      </Pressable>
+      {showVariant ? <TerminalText tone="muted">•</TerminalText> : null}
+      {showVariant ? (
+        <Pressable onPress={onVariantPress} hitSlop={8}>
+          <TerminalText tone="yellow" bold>{status.thinking}</TerminalText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -1808,9 +1812,17 @@ const styles = StyleSheet.create({
   promptStatus: {
     flex: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.sm,
     justifyContent: "center",
+    minWidth: 0,
+  },
+  promptModelStatus: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  promptModelName: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   composerStatusRow: {
     alignItems: "center",
