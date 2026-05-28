@@ -45,7 +45,7 @@ export function StatusLine({ left, right }: { left: ReactNode; right?: ReactNode
   return (
     <View style={styles.statusLine}>
       <View style={styles.statusLeft}>{left}</View>
-      {right ? <View>{right}</View> : null}
+      {right ? <View style={styles.statusRight}>{right}</View> : null}
     </View>
   );
 }
@@ -84,7 +84,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   statusLeft: {
+    flex: 1,
     flexDirection: "row",
+    minWidth: 0,
     gap: spacing.sm,
+  },
+  statusRight: {
+    flexShrink: 0,
   },
 });

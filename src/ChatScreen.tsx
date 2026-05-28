@@ -334,7 +334,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.wrap}>
       <StatusLine
-        left={<View style={styles.titleWrap}><TerminalText tone="yellow" bold>{session.title || "session"}</TerminalText></View>}
+        left={<View style={styles.titleWrap}><TerminalText tone="yellow" bold numberOfLines={1} ellipsizeMode="tail">{session.title || "session"}</TerminalText></View>}
         right={<CommandButton label="back" tone="muted" onPress={onBack} />}
       />
       <View style={styles.body}>
@@ -1648,7 +1648,9 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   titleWrap: {
+    flex: 1,
     marginLeft: spacing.sm,
+    minWidth: 0,
   },
   assistantMessage: {
     gap: spacing.sm,
