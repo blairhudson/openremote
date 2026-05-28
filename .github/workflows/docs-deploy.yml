@@ -44,6 +44,8 @@ jobs:
       - name: Build
         run: bun run build
         working-directory: docs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

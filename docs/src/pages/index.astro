@@ -7,6 +7,51 @@ const pageTitle = "OpenRemote - Remote for OpenCode";
 const pageDescription = "OpenRemote connects to OpenCode over your local network so you can chat, switch models, run shell commands, and approve permissions from your phone.";
 const previewImage = `${siteUrl}/og-image.jpg`;
 const demoVideo = `${siteUrl}/openremote-docs.mp4`;
+type Contributor = {
+  login: string;
+  avatar_url: string;
+  html_url: string;
+  contributions: number;
+};
+const fallbackContributors: Contributor[] = [
+  {
+    login: "blairhudson",
+    avatar_url: "https://avatars.githubusercontent.com/u/271893?v=4",
+    html_url: "https://github.com/blairhudson",
+    contributions: 31,
+  },
+  {
+    login: "FenikSRT4",
+    avatar_url: "https://avatars.githubusercontent.com/u/101027148?v=4",
+    html_url: "https://github.com/FenikSRT4",
+    contributions: 2,
+  },
+];
+const fetchContributors = async () => {
+  try {
+    const token = import.meta.env.GITHUB_TOKEN ?? import.meta.env.GH_TOKEN;
+    const response = await fetch("https://api.github.com/repos/blairhudson/openremote/contributors?per_page=100", {
+      headers: {
+        Accept: "application/vnd.github+json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!response.ok) return fallbackContributors;
+    const contributors = await response.json();
+    if (!Array.isArray(contributors)) return fallbackContributors;
+    return contributors
+      .filter((contributor): contributor is Contributor =>
+        typeof contributor?.login === "string" &&
+        typeof contributor?.avatar_url === "string" &&
+        typeof contributor?.html_url === "string" &&
+        typeof contributor?.contributions === "number",
+      )
+      .sort((a, b) => b.contributions - a.contributions);
+  } catch {
+    return fallbackContributors;
+  }
+};
+const contributors = await fetchContributors();
 const structuredData = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -240,13 +285,20 @@ const structuredData = {
       <section id="open" class="split-section open-section">
         <div>
           <h2>OpenRemote is Open.</h2>
-          <p class="section-copy">OpenRemote is available under <a class="inline-link" href="https://github.com/blairhudson/openremote/blob/main/LICENSE" target="_blank" rel="noreferrer">FSL-1.1-MIT</a>. You can inspect the code, contribute, and <a class="inline-link" href="/docs/installation">install or self-host</a>.</p>
         </div>
         <article class="card open-card">
           <p>Provide your feedback for the future of OpenRemote:</p>
           <div class="open-actions">
             <a class="button ghost" href={`${repoUrl}/issues/new?template=feature_request.yml`} target="_blank" rel="noreferrer">Request a Feature</a>
             <a class="button ghost" href={`${repoUrl}/issues/new?template=bug_report.yml`} target="_blank" rel="noreferrer">Report a Bug</a>
+          </div>
+          <p class="section-copy">OpenRemote is available under <a class="inline-link" href="https://github.com/blairhudson/openremote/blob/main/LICENSE" target="_blank" rel="noreferrer">FSL-1.1-MIT</a>. You can inspect the code, contribute, and <a class="inline-link" href="/docs/installation">install or self-host</a>. Thanks to all of our contributors:</p>
+          <div class="contributors-list" aria-label="OpenRemote contributors sorted by contribution count">
+            {contributors.map((contributor) => (
+              <a class="contributor-link" href={contributor.html_url} target="_blank" rel="noreferrer" aria-label={`@${contributor.login}, ${contributor.contributions} contributions`} title={`@${contributor.login} · ${contributor.contributions} contributions`}>
+                <img class="contributor-avatar" src={contributor.avatar_url} alt={`@${contributor.login}`} loading="lazy" />
+              </a>
+            ))}
           </div>
         </article>
       </section>
