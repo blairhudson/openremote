@@ -7,9 +7,10 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
 import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
-import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, saveActiveSession, saveConnection, type ConnectionSettings } from "./src/storage";
+import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, loadKeepAwakeMode, saveActiveSession, saveConnection, saveKeepAwakeMode, type ConnectionSettings, type KeepAwakeMode } from "./src/storage";
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
+import { SettingsScreen } from "./src/SettingsScreen";
 
 export default function App() {
   const [fontsLoaded] = useFonts({ JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraBold });
@@ -24,6 +25,8 @@ export default function App() {
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [serverDirectory, setServerDirectory] = useState<string | undefined>();
+  const [screen, setScreen] = useState<"sessions" | "settings">("sessions");
+  const [keepAwakeMode, setKeepAwakeMode] = useState<KeepAwakeMode>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventSubscriptionKey, setEventSubscriptionKey] = useState(0);
@@ -45,7 +48,10 @@ export default function App() {
   }, [active?.id]);
 
   useEffect(() => {
-    loadConnection().then((saved) => saved && connect(saved));
+    Promise.all([loadConnection(), loadKeepAwakeMode()]).then(([savedConnection, savedKeepAwakeMode]) => {
+      setKeepAwakeMode(savedKeepAwakeMode);
+      if (savedConnection) connect(savedConnection, undefined, savedKeepAwakeMode);
+    });
   }, []);
 
   useEffect(() => {
@@ -73,14 +79,14 @@ export default function App() {
       if (state === "active") {
         setEventSubscriptionKey((current) => current + 1);
         void refresh(client, activeSessionIdRef.current, false, true);
-        if (activeRef.current) announceSession(client, activeRef.current);
-        else announceWaiting(client);
+        if (activeRef.current) announceSession(client, activeRef.current, keepAwakeMode);
+        else announceWaiting(client, true, keepAwakeMode);
         return;
       }
-      announceWaiting(client);
+      announceWaiting(client, false, keepAwakeMode);
     });
     return () => subscription.remove();
-  }, [client]);
+  }, [client, keepAwakeMode]);
 
   function scheduleRefresh(target: OpencodeClient, sessionId?: string) {
     if (sessionId && sessionStatusRef.current[sessionId]?.type === "busy") return;
@@ -239,7 +245,7 @@ export default function App() {
     }
   }
 
-  async function connect(next: ConnectionSettings, scannedSessionId?: string) {
+  async function connect(next: ConnectionSettings, scannedSessionId?: string, modeOverride?: KeepAwakeMode) {
     setBusy(true);
     setError(null);
     try {
@@ -247,11 +253,12 @@ export default function App() {
       await nextClient.health();
       await saveConnection(next);
       setSettings(next);
+      void sendKeepAwakeMode(nextClient, modeOverride ?? keepAwakeMode);
       setCommands(await nextClient.commands());
       setModelLimits(await nextClient.modelLimits());
       await refresh(nextClient);
       const restored = scannedSessionId ? await restoreSession(nextClient, scannedSessionId) : await restoreActiveSession(nextClient);
-      if (!restored) announceWaiting(nextClient);
+      if (!restored) announceWaiting(nextClient, true, modeOverride ?? keepAwakeMode);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "connect failed");
     } finally {
@@ -291,7 +298,7 @@ export default function App() {
     setActive(session);
     activeRef.current = session;
     await saveActiveSession(session.id);
-    announceSession(client, session);
+    announceSession(client, session, keepAwakeMode);
     await refresh(client, session.id);
     return session;
   }
@@ -308,7 +315,7 @@ export default function App() {
     setActive(session);
     activeRef.current = session;
     await saveActiveSession(session.id);
-    if (client) announceSession(client, session);
+    if (client) announceSession(client, session, keepAwakeMode);
     await refresh(client, session.id);
   }
 
@@ -320,7 +327,7 @@ export default function App() {
     setActive(session);
     activeRef.current = session;
     await saveActiveSession(session.id);
-    if (client) announceSession(client, session);
+    if (client) announceSession(client, session, keepAwakeMode);
     await refresh(client, session.id);
   }
 
@@ -330,7 +337,7 @@ export default function App() {
   }
 
   function disconnectSession() {
-    if (client) announceWaiting(client);
+    if (client) announceWaiting(client, true, keepAwakeMode);
     void clearActiveSession();
     activeRef.current = null;
     setActive(null);
@@ -356,8 +363,8 @@ export default function App() {
     setMessages(await target.messages(session.id));
     setLivePartsByMessage({});
     livePartsRef.current = {};
-    if (appStateRef.current === "active") announceSession(target, session);
-    else announceWaiting(target);
+    if (appStateRef.current === "active") announceSession(target, session, keepAwakeMode);
+    else announceWaiting(target, true, keepAwakeMode);
     return true;
   }
 
@@ -384,6 +391,7 @@ export default function App() {
     await clearConnection();
     await clearActiveSession();
     setSettings(null);
+    setScreen("sessions");
     setSessions([]);
     setCommands([]);
     setModelLimits({});
@@ -397,6 +405,16 @@ export default function App() {
     livePartsRef.current = {};
   }
 
+  async function changeKeepAwakeMode(mode: KeepAwakeMode) {
+    setKeepAwakeMode(mode);
+    await saveKeepAwakeMode(mode);
+    if (client) {
+      void sendKeepAwakeMode(client, mode);
+      if (activeRef.current) announceSession(client, activeRef.current, mode);
+      else announceWaiting(client, true, mode);
+    }
+  }
+
   if (!fontsLoaded) return null;
 
   return (
@@ -408,8 +426,10 @@ export default function App() {
             <ConnectScreen initial={settings} busy={busy} error={error} onConnect={connect} />
           ) : active ? (
             <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
+          ) : screen === "settings" ? (
+            <SettingsScreen keepAwakeMode={keepAwakeMode} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} />
           ) : (
-            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} />
+            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
           )}
         </SafeAreaView>
       </SafeAreaProvider>
@@ -425,15 +445,15 @@ function upsertMessage(messages: MessageBundle[], info: Message) {
   return next;
 }
 
-function announceSession(client: OpencodeClient, session: Session) {
+function announceSession(client: OpencodeClient, session: Session, keepAwakeMode: KeepAwakeMode) {
   const device = deviceName();
   void client.executeTuiCommand("openremote.connected").catch(() => undefined);
-  void client.showToast(`openremote connected: ${device}`).catch(() => undefined);
+  void client.showToast(`openremote connected: ${device} keepawake=${keepAwakeMode}`).catch(() => undefined);
 }
 
-function announceWaiting(client: OpencodeClient) {
+function announceWaiting(client: OpencodeClient, showToast = true, keepAwakeMode: KeepAwakeMode = "auto") {
   void client.executeTuiCommand("openremote.waiting").catch(() => undefined);
-  void client.showToast("openremote waiting").catch(() => undefined);
+  if (showToast) void client.showToast(`openremote waiting keepawake=${keepAwakeMode}`).catch(() => undefined);
 }
 
 async function announceDisconnected(client: OpencodeClient) {
@@ -441,6 +461,10 @@ async function announceDisconnected(client: OpencodeClient) {
     client.executeTuiCommand("openremote.disconnected"),
     client.showToast("openremote disconnected"),
   ]);
+}
+
+function sendKeepAwakeMode(client: OpencodeClient, mode: KeepAwakeMode) {
+  return client.executeTuiCommand(`openremote.keepawake.${mode}`).catch(() => undefined);
 }
 
 function deviceName() {

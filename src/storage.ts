@@ -7,8 +7,11 @@ export type ConnectionSettings = {
   password: string;
 };
 
+export type KeepAwakeMode = "auto" | "connected" | "off";
+
 const key = "openremote.connection";
 const activeSessionKey = "openremote.active-session";
+const keepAwakeModeKey = "openremote.keep-awake-mode";
 
 export async function loadConnection() {
   const value = await getItem(key);
@@ -34,6 +37,16 @@ export async function saveActiveSession(sessionId: string) {
 
 export async function clearActiveSession() {
   await deleteItem(activeSessionKey);
+}
+
+export async function loadKeepAwakeMode() {
+  const value = await getItem(keepAwakeModeKey);
+  if (value === "connected" || value === "off") return value;
+  return "auto";
+}
+
+export async function saveKeepAwakeMode(mode: KeepAwakeMode) {
+  await setItem(keepAwakeModeKey, mode);
 }
 
 async function getItem(storageKey: string) {

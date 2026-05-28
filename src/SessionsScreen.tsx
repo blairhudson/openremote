@@ -12,14 +12,20 @@ type Props = {
   onCreate: () => void;
   onOpen: (session: Session) => void;
   onDisconnect: () => void;
+  onSettings: () => void;
 };
 
-export function SessionsScreen({ sessions, serverUrl, busy, onCreate, onOpen, onDisconnect }: Props) {
+export function SessionsScreen({ sessions, serverUrl, busy, onCreate, onOpen, onDisconnect, onSettings }: Props) {
   return (
     <View style={styles.wrap}>
       <StatusLine
         left={<TerminalText tone="yellow" bold>{serverLabel(serverUrl)}</TerminalText>}
-        right={<CommandButton label="disconnect" tone="muted" onPress={onDisconnect} />}
+        right={<View style={styles.actions}>
+          <CommandButton label="disconnect" tone="muted" onPress={onDisconnect} />
+          <Pressable onPress={onSettings} style={styles.cogButton}>
+            <TerminalText tone="cyan" bold size={22} style={styles.cogText}>⚙</TerminalText>
+          </Pressable>
+        </View>}
       />
       <RailPanel tone="cyan">
         <View style={styles.header}>
@@ -72,6 +78,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
+  },
+  actions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  cogButton: {
+    alignItems: "center",
+    backgroundColor: colors.panel2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    minWidth: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: "center",
+  },
+  cogText: {
+    lineHeight: 21,
   },
   list: {
     gap: spacing.sm,

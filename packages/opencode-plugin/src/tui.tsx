@@ -88,6 +88,7 @@ const [remoteConnected, setRemoteConnected] = createSignal(false);
 const [remoteStatus, setRemoteStatus] = createSignal<"waiting" | "connected">("waiting");
 const [remoteDevice, setRemoteDevice] = createSignal("mobile");
 const [keepAwakeEnabled, setKeepAwakeEnabled] = createSignal(false);
+const [keepAwakeMode, setKeepAwakeMode] = createSignal<"auto" | "connected" | "off">("auto");
 
 function qrLines(value: string) {
   if (cachedQrUrl !== value) {
@@ -159,6 +160,24 @@ function setKeepAwake(enabled: boolean) {
   else stopKeepAwake();
 }
 
+function wantedKeepAwake(status = remoteStatus(), connected = remoteConnected()) {
+  const mode = keepAwakeMode();
+  if (!connected) return false;
+  if (mode === "off") return false;
+  if (mode === "connected") return status === "connected";
+  return true;
+}
+
+function applyKeepAwake(status = remoteStatus()) {
+  setKeepAwake(wantedKeepAwake(status));
+}
+
+function setKeepAwakeModeCommand(api: TuiPluginApi, mode: "auto" | "connected" | "off") {
+  setKeepAwakeMode(mode);
+  applyKeepAwake();
+  api.renderer.requestRender();
+}
+
 function installCleanup() {
   if (cleanupInstalled) return;
   cleanupInstalled = true;
@@ -175,26 +194,30 @@ function installCleanup() {
 }
 
 function toggleKeepAwake(api: TuiPluginApi) {
-  setKeepAwake(!keepAwakeEnabled());
+  const enabled = !keepAwakeEnabled();
+  setKeepAwakeMode(enabled ? "auto" : "off");
+  setKeepAwake(enabled);
   api.renderer.requestRender();
 }
 
 function markRemoteConnected(api: TuiPluginApi, device?: string) {
-  const changed = !remoteConnected() || remoteStatus() !== "connected" || (device ? remoteDevice() !== device : false) || !keepAwakeEnabled();
+  const keepAwake = wantedKeepAwake("connected", true);
+  const changed = !remoteConnected() || remoteStatus() !== "connected" || (device ? remoteDevice() !== device : false) || keepAwakeEnabled() !== keepAwake;
   if (!changed) return;
   setRemoteConnected(true);
   setRemoteStatus("connected");
   if (device) setRemoteDevice(device);
-  setKeepAwake(true);
+  setKeepAwake(keepAwake);
   api.renderer.requestRender();
 }
 
 function markRemoteWaiting(api: TuiPluginApi) {
-  const changed = !remoteConnected() || remoteStatus() !== "waiting" || !keepAwakeEnabled();
+  const keepAwake = wantedKeepAwake("waiting", true);
+  const changed = !remoteConnected() || remoteStatus() !== "waiting" || keepAwakeEnabled() !== keepAwake;
   if (!changed) return;
   setRemoteConnected(true);
   setRemoteStatus("waiting");
-  setKeepAwake(true);
+  setKeepAwake(keepAwake);
   api.renderer.requestRender();
 }
 
@@ -223,7 +246,7 @@ function isOpenRemoteConnectedToast(event: unknown) {
 function openRemoteConnectedDevice(event: unknown) {
   const message = eventString(event, "message");
   if (!message.startsWith("openremote connected")) return undefined;
-  const device = message.slice("openremote connected".length).replace(/^\s*(to|:)\s*/, "").trim();
+  const device = message.slice("openremote connected".length).replace(/^\s*(to|:)\s*/, "").replace(/\s+keepawake=(auto|connected|off)\b/, "").trim();
   return device || undefined;
 }
 
@@ -233,6 +256,12 @@ function isOpenRemoteDisconnectedToast(event: unknown) {
 
 function isOpenRemoteWaitingToast(event: unknown) {
   return eventString(event, "message") === "openremote waiting";
+}
+
+function openRemoteKeepAwakeMode(event: unknown) {
+  const value = openRemoteCommand(event) || eventString(event, "message");
+  const match = value.match(/(?:^openremote[ .]keepawake[ .]|\bkeepawake=)(auto|connected|off)\b/);
+  return match?.[1] as "auto" | "connected" | "off" | undefined;
 }
 
 function openRemoteCommand(event: unknown) {
@@ -251,6 +280,8 @@ function installEventHandlers(api: TuiPluginApi) {
     if (isOpenRemoteConnectedToast(event)) markRemoteConnected(currentApi, openRemoteConnectedDevice(event));
     if (isOpenRemoteWaitingToast(event)) markRemoteWaiting(currentApi);
     if (isOpenRemoteDisconnectedToast(event)) markRemoteDisconnected(currentApi);
+    const mode = openRemoteKeepAwakeMode(event);
+    if (mode) setKeepAwakeModeCommand(currentApi, mode);
   });
   api.event.on("tui.command.execute", (event) => {
     const currentApi = latestApi;
@@ -259,6 +290,11 @@ function installEventHandlers(api: TuiPluginApi) {
     if (command === "openremote.connected") markRemoteConnected(currentApi);
     if (command === "openremote.waiting") markRemoteWaiting(currentApi);
     if (command === "openremote.disconnected") markRemoteDisconnected(currentApi);
+    if (command === "openremote.keepawake.auto") setKeepAwakeModeCommand(currentApi, "auto");
+    if (command === "openremote.keepawake.connected") setKeepAwakeModeCommand(currentApi, "connected");
+    if (command === "openremote.keepawake.off") setKeepAwakeModeCommand(currentApi, "off");
+    const mode = openRemoteKeepAwakeMode(event);
+    if (mode) setKeepAwakeModeCommand(currentApi, mode);
   });
   api.event.on("server.connected", () => {
     const currentApi = latestApi;
@@ -295,6 +331,27 @@ function installCommands(api: TuiPluginApi) {
       hidden: true,
       onSelect: () => markRemoteDisconnected(latestApi ?? api),
     },
+    {
+      title: "OpenRemote keep awake auto",
+      value: "openremote.keepawake.auto",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => setKeepAwakeModeCommand(latestApi ?? api, "auto"),
+    },
+    {
+      title: "OpenRemote keep awake connected",
+      value: "openremote.keepawake.connected",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => setKeepAwakeModeCommand(latestApi ?? api, "connected"),
+    },
+    {
+      title: "OpenRemote keep awake off",
+      value: "openremote.keepawake.off",
+      category: "OpenRemote",
+      hidden: true,
+      onSelect: () => setKeepAwakeModeCommand(latestApi ?? api, "off"),
+    },
   ]);
 }
 
@@ -325,7 +382,7 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
           <text fg={props.theme.textMuted}>{remoteDevice()} connected</text>
           <box width="100%" flexDirection="row" justifyContent="space-between" onClick={() => toggleKeepAwake(props.api)}>
             <text fg={props.theme.text}>keep awake</text>
-            <text fg={keepAwakeEnabled() ? props.theme.accent : props.theme.textMuted}>{keepAwakeEnabled() ? "on" : "off"}</text>
+            <text fg={keepAwakeEnabled() ? props.theme.accent : props.theme.textMuted}>{keepAwakeMode()}</text>
           </box>
         </box>
       )}
