@@ -65,9 +65,16 @@ const timelines = [
 
 const features = [
   {
-    status: "Backlog",
+    status: "In progress",
+    title: "Responsive device support",
+    text: "Improve UX across a larger range of device sizes, especially small screens.",
+  },
+  {
+    status: "Completed",
     title: "In-app keep-awake toggle",
     text: "Control keep-awake from OpenRemote without changing plugin setup.",
+    commitHref: "https://github.com/blairhudson/openremote/commit/9f30203",
+    commitRef: "9f30203",
   },
   {
     status: "Backlog",
@@ -85,11 +92,6 @@ const features = [
     status: "Planning",
     title: "Multiple server discovery",
     text: "Improve the experience when multiple OpenCode servers are running on the same network.",
-  },
-  {
-    status: "Planning",
-    title: "Responsive device support",
-    text: "Improve UX across a larger range of device sizes, especially small screens.",
   },
   {
     status: "Completed",
@@ -114,9 +116,10 @@ const features = [
 ];
 
 const featureStatusOrder: Record<string, number> = {
-  Planning: 0,
-  Backlog: 1,
-  Completed: 2,
+  "In progress": 0,
+  Planning: 1,
+  Backlog: 2,
+  Completed: 3,
 };
 
 const sortedFeatures = [...features].sort((left, right) => (featureStatusOrder[left.status] ?? 99) - (featureStatusOrder[right.status] ?? 99));
