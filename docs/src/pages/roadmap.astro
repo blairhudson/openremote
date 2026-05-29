@@ -77,9 +77,9 @@ const features = [
     commitRef: "9f30203",
   },
   {
-    status: "Backlog",
+    status: "In progress",
     title: "Remote access tunnels",
-    text: "Let OpenRemote connect to OpenCode when phone and desktop are on different networks.",
+    text: "Let OpenRemote connect to OpenCode when phone and desktop are on different networks using a generated password via an OpenRemote proxy.",
   },
   {
     status: "Completed",
@@ -123,6 +123,16 @@ const featureStatusOrder: Record<string, number> = {
 };
 
 const sortedFeatures = [...features].sort((left, right) => (featureStatusOrder[left.status] ?? 99) - (featureStatusOrder[right.status] ?? 99));
+
+const dependencies = [
+  {
+    id: "dependency-openremote-proxy-auth",
+    title: "OpenCode server password with LAN startup",
+    text: "OpenCode built-in OPENCODE_SERVER_PASSWORD currently fails with --mdns or --hostname startup. Until this is fixed, password-protected OpenRemote connections require the OpenRemote plugin.",
+    href: "https://github.com/anomalyco/opencode/issues/29847",
+    label: "Related: anomalyco/opencode#29847",
+  },
+];
 ---
 
 <!doctype html>
@@ -230,6 +240,21 @@ const sortedFeatures = [...features].sort((left, right) => (featureStatusOrder[l
               </div>
               <h3>{feature.title}</h3>
               <p>{feature.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section class="roadmap-section" aria-labelledby="dependencies-title">
+        <div class="section-heading-row">
+          <h2 id="dependencies-title">OpenCode bug reports submitted</h2>
+        </div>
+        <div class="feature-roadmap-grid dependency-grid">
+          {dependencies.map((dependency) => (
+            <article id={dependency.id} class="feature-roadmap-card dependency-card">
+              <h3>{dependency.title}</h3>
+              <p>{dependency.text}</p>
+              <a class="inline-link" href={dependency.href} target="_blank" rel="noreferrer">{dependency.label}</a>
             </article>
           ))}
         </div>

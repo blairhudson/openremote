@@ -2,9 +2,10 @@
 import "../../styles/global.css";
 import DocsSidebar from "../../components/DocsSidebar.astro";
 
+const repoUrl = "https://github.com/blairhudson/openremote";
 const siteUrl = "https://openremote.blairhudson.com";
-const pageTitle = "OpenRemote Getting Started";
-const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan QR codes, and start using sessions from your phone.";
+const pageTitle = "OpenRemote Remote Tunnels";
+const pageDescription = "Use OpenRemote remote tunnels to connect to OpenCode when your phone and desktop are on different networks.";
 ---
 
 <!doctype html>
@@ -17,7 +18,7 @@ const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan 
     <meta name="theme-color" content="#151718" />
     <meta property="og:site_name" content="OpenRemote" />
     <meta property="og:type" content="article" />
-    <meta property="og:url" content={`${siteUrl}/docs/getting-started`} />
+    <meta property="og:url" content={`${siteUrl}/docs/remote-tunnels`} />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={pageDescription} />
     <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
@@ -28,7 +29,7 @@ const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan 
     <meta name="twitter:title" content={pageTitle} />
     <meta name="twitter:description" content={pageDescription} />
     <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
-    <link rel="canonical" href={`${siteUrl}/docs/getting-started`} />
+    <link rel="canonical" href={`${siteUrl}/docs/remote-tunnels`} />
     <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
     <title>{pageTitle}</title>
   </head>
@@ -51,7 +52,7 @@ const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan 
             <a href="/docs">docs</a>
             <a href="/news">news</a>
             <a href="/roadmap">roadmap</a>
-            <a class="nav-icon" href="https://github.com/blairhudson/openremote" aria-label="GitHub" target="_blank" rel="noreferrer">
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
               <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
               </svg>
@@ -66,58 +67,45 @@ const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan 
 
         <article class="docs-content">
           <header class="docs-header">
-            <h1>Connect OpenRemote to OpenCode</h1>
-            <p>Start OpenCode on your computer, open OpenRemote on your phone, then connect over your local network.</p>
+            <h1>Remote tunnels</h1>
+            <p>Remote tunnels let OpenRemote connect to OpenCode when your phone and desktop are not on the same local network.</p>
           </header>
 
           <section class="guide-section">
-            <h2>Connect from OpenRemote</h2>
-            <div class="install-tabs getting-started-tabs" aria-label="OpenRemote connection options">
-              <input id="connect-plugin" class="install-radio" type="radio" name="connect-path" data-connect-hash="with-plugin" checked />
-              <input id="connect-lan" class="install-radio" type="radio" name="connect-path" data-connect-hash="without-plugin" />
-
-              <div class="install-tab-list connect-tab-list" role="tablist" aria-label="Choose connection path">
-                <label class="install-tab connect-tab-plugin" for="connect-plugin" role="tab">with OpenRemote plugin</label>
-                <label class="install-tab connect-tab-lan" for="connect-lan" role="tab">without plugin</label>
-              </div>
-
-              <article class="install-panel connect-panel-plugin" role="tabpanel">
-                <p>Install the <a class="inline-link" href="/docs/plugin">OpenRemote plugin</a>, then:</p>
-                <pre><code>opencode --hostname 127.0.0.1</code></pre>
-                <p class="scan-qr-note">Scan the QR code from OpenRemote.</p>
-              </article>
-
-              <article class="install-panel connect-panel-lan" role="tabpanel">
-                <p class="lan-start-note">You can use the OpenRemote app without the plugin with most functionality:</p>
-                <div class="command-options">
-                  <pre><code>opencode --mdns</code></pre>
-                  <span>or</span>
-                  <pre><code>opencode --hostname 0.0.0.0</code></pre>
-                </div>
-              </article>
-
-              <div class="doc-card password-note-panel">
-                <h3 class="doc-subheading">Secure OpenCode before using shared or public Wi-Fi.</h3>
-                <p>Securing OpenCode with a password currently requires the <a class="inline-link" href="/docs/plugin">OpenRemote plugin</a> because of an OpenCode server password bug tracked on the <a class="inline-link" href="/roadmap#dependency-openremote-proxy-auth">roadmap</a>.</p>
-              </div>
-            </div>
+            <h2>How it works</h2>
             <ul class="guide-list">
-              <li>OpenRemote searches for OpenCode servers on your network.</li>
-              <li>Tap a discovered server to fill the connection details.</li>
-              <li>If discovery is unavailable, enter the host LAN IP and port, usually <code>4096</code>.</li>
-              <li>On an Android emulator, connect to the host machine with <code>10.0.2.2:4096</code>.</li>
+              <li>The OpenRemote plugin starts a local authenticated proxy on your desktop.</li>
+              <li>The proxy uses a generated password, so you do not need to configure an OpenCode server password.</li>
+              <li>A tunnel provider exposes that proxy through a temporary HTTPS URL.</li>
+              <li>The app switches to the tunnel only after the desktop and the app can both reach it.</li>
+              <li>While connected through a tunnel, turn remote access off only after disconnecting.</li>
             </ul>
           </section>
 
           <section class="guide-section">
-            <h2>Use OpenRemote</h2>
-            <ul class="guide-list">
-              <li>Browse and resume OpenCode sessions.</li>
-              <li>Send chat prompts from your phone.</li>
-              <li>Run shell commands and view output in the transcript.</li>
-              <li>Approve or reject permission prompts remotely.</li>
-              <li>Switch Build or Plan and choose connected models.</li>
-            </ul>
+            <h2>Setup</h2>
+            <p>Install the <a class="inline-link" href="/docs/plugin">OpenRemote plugin</a> first, then choose a tunnel provider.</p>
+            <p>Restart OpenCode after setup.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Providers</h2>
+            <div class="install-tabs tunnel-provider-tabs" aria-label="Tunnel provider options">
+              <input id="tunnel-cloudflared" class="install-radio" type="radio" name="tunnel-provider" data-tunnel-hash="cloudflared" checked />
+
+              <div class="install-tab-list tunnel-tab-list" role="tablist" aria-label="Choose tunnel provider">
+                <label class="install-tab tunnel-tab-cloudflared" for="tunnel-cloudflared" role="tab">cloudflared</label>
+              </div>
+
+              <article class="install-panel tunnel-panel-cloudflared" role="tabpanel">
+                <h3>cloudflared</h3>
+                <p>Install Cloudflare's tunnel client on the desktop running OpenCode.</p>
+                <pre><code>brew install cloudflared</code></pre>
+                <p>For other platforms, use the official Cloudflare install guide.</p>
+                <p>Open OpenRemote, go to Settings, then set Remote access to <code>cloudflare</code>. The desktop starts a temporary tunnel and the app connects after the tunnel is reachable.</p>
+                <p><a class="inline-link" href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noreferrer">Open cloudflared install docs</a></p>
+              </article>
+            </div>
           </section>
           <footer class="footer docs-footer">
             <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
@@ -127,5 +115,21 @@ const pageDescription = "Connect OpenRemote to OpenCode, discover servers, scan 
         </article>
       </div>
     </main>
+    <script>
+      const tunnelTabs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-tunnel-hash]"));
+      const selectTunnelTab = () => {
+        const hash = window.location.hash.slice(1);
+        const activeTab = tunnelTabs.find((tab) => tab.dataset.tunnelHash === hash);
+        if (activeTab) activeTab.checked = true;
+      };
+
+      tunnelTabs.forEach((tab) => {
+        tab.addEventListener("change", () => {
+          if (tab.checked) window.history.replaceState(null, "", `#${tab.dataset.tunnelHash}`);
+        });
+      });
+      window.addEventListener("hashchange", selectTunnelTab);
+      selectTunnelTab();
+    </script>
   </body>
 </html>
