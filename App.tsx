@@ -7,14 +7,16 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
 import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
-import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, loadKeepAwakeMode, saveActiveSession, saveConnection, saveKeepAwakeMode, type ConnectionSettings, type KeepAwakeMode } from "./src/storage";
+import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, loadKeepAwakeMode, loadLocalConnection, loadRemotePassword, loadTunnelConnection, loadTunnelMode, saveActiveSession, saveConnection, saveKeepAwakeMode, saveLocalConnection, saveRemotePassword, saveTunnelConnection, saveTunnelMode, type ConnectionSettings, type KeepAwakeMode, type TunnelMode } from "./src/storage";
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
-import { SettingsScreen } from "./src/SettingsScreen";
+import { SettingsScreen, type TunnelCapability } from "./src/SettingsScreen";
 
 export default function App() {
   const [fontsLoaded] = useFonts({ JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraBold });
   const [settings, setSettings] = useState<ConnectionSettings | null>(null);
+  const [localSettings, setLocalSettings] = useState<ConnectionSettings | null>(null);
+  const [tunnelSettings, setTunnelSettings] = useState<ConnectionSettings | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [commands, setCommands] = useState<Command[]>([]);
   const [modelLimits, setModelLimits] = useState<ModelLimits>({});
@@ -27,6 +29,21 @@ export default function App() {
   const [serverDirectory, setServerDirectory] = useState<string | undefined>();
   const [screen, setScreen] = useState<"sessions" | "settings">("sessions");
   const [keepAwakeMode, setKeepAwakeMode] = useState<KeepAwakeMode>("auto");
+  const [tunnelMode, setTunnelMode] = useState<TunnelMode>("off");
+  const [tunnelCapability, setTunnelCapability] = useState<TunnelCapability>("checking");
+  const [tunnelUrl, setTunnelUrl] = useState("");
+  const [tunnelError, setTunnelError] = useState<string | null>(null);
+  const [tunnelLog, setTunnelLog] = useState<string | null>(null);
+  const [remotePassword, setRemotePassword] = useState("");
+  const pendingTunnelMode = useRef<TunnelMode>("off");
+  const tunnelProbeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const tunnelStartRequested = useRef(false);
+  const tunnelRestorePending = useRef(false);
+  const tunnelSwitchPending = useRef(false);
+  const remotePasswordRef = useRef("");
+  const localSettingsRef = useRef<ConnectionSettings | null>(null);
+  const tunnelSettingsRef = useRef<ConnectionSettings | null>(null);
+  const settingsRef = useRef<ConnectionSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventSubscriptionKey, setEventSubscriptionKey] = useState(0);
@@ -48,10 +65,33 @@ export default function App() {
   }, [active?.id]);
 
   useEffect(() => {
-    Promise.all([loadConnection(), loadKeepAwakeMode()]).then(([savedConnection, savedKeepAwakeMode]) => {
+    Promise.all([loadConnection(), loadKeepAwakeMode(), loadTunnelMode(), loadRemotePassword(), loadLocalConnection(), loadTunnelConnection()]).then(([savedConnection, savedKeepAwakeMode, savedTunnelMode, savedRemotePassword, savedLocalConnection, savedTunnelConnection]) => {
       setKeepAwakeMode(savedKeepAwakeMode);
-      if (savedConnection) connect(savedConnection, undefined, savedKeepAwakeMode);
+      setLocalSettings(savedLocalConnection);
+      localSettingsRef.current = savedLocalConnection;
+      setTunnelSettings(savedTunnelConnection);
+      tunnelSettingsRef.current = savedTunnelConnection;
+      setRemotePassword(savedRemotePassword ?? "");
+      remotePasswordRef.current = savedRemotePassword ?? "";
+      pendingTunnelMode.current = savedTunnelMode;
+      if (savedConnection) connect(savedConnection, undefined, savedKeepAwakeMode, isTunnelConnection(savedConnection));
     });
+  }, []);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    remotePasswordRef.current = remotePassword;
+  }, [remotePassword]);
+
+  useEffect(() => {
+    tunnelSettingsRef.current = tunnelSettings;
+  }, [tunnelSettings]);
+
+  useEffect(() => () => {
+    if (tunnelProbeTimer.current) clearTimeout(tunnelProbeTimer.current);
   }, []);
 
   useEffect(() => {
@@ -64,6 +104,16 @@ export default function App() {
       stop();
     };
   }, [client, eventSubscriptionKey]);
+
+  useEffect(() => {
+    if (!client) return;
+    probeTunnel(client);
+  }, [client, eventSubscriptionKey]);
+
+  useEffect(() => {
+    if (!client || screen !== "settings") return;
+    probeTunnel(client);
+  }, [client, screen]);
 
   useEffect(() => {
     if (!client) return;
@@ -97,7 +147,62 @@ export default function App() {
   }
 
   function queueStreamEvent(event: StreamEvent, target: OpencodeClient, sessionId?: string) {
+    handleTunnelEvent(event, target);
     applyStreamEvents([event], target, sessionId);
+  }
+
+  function handleTunnelEvent(event: StreamEvent, target: OpencodeClient) {
+    const message = event.type === "tui.toast.show" ? event.properties?.message ?? (event as { message?: string }).message ?? "" : "";
+    const log = tunnelLogFromMessage(message);
+    if (log) setTunnelLog(log);
+
+    const capability = tunnelCapabilityFromMessage(message);
+    if (capability) {
+      if (tunnelProbeTimer.current) clearTimeout(tunnelProbeTimer.current);
+      setTunnelCapability(capability);
+      if (capability === "ready" && pendingTunnelMode.current === "cloudflare" && !tunnelStartRequested.current) {
+        void changeTunnelMode("cloudflare", target, capability);
+      }
+      if (capability !== "ready" && pendingTunnelMode.current === "cloudflare") {
+        tunnelStartRequested.current = false;
+        pendingTunnelMode.current = "off";
+        setTunnelMode("off");
+        void saveTunnelMode("off");
+      }
+    }
+
+    const status = tunnelStatusFromMessage(message);
+    if (status === "off") {
+      tunnelStartRequested.current = false;
+      tunnelSwitchPending.current = false;
+      setTunnelMode("off");
+      setTunnelUrl("");
+      setTunnelError(null);
+      setTunnelLog(null);
+      setRemotePassword("");
+      remotePasswordRef.current = "";
+      void saveRemotePassword("");
+      void restoreLocalConnection();
+    }
+    if (status === "error") {
+      tunnelStartRequested.current = false;
+      tunnelSwitchPending.current = false;
+      setTunnelError(tunnelErrorFromMessage(message) ?? tunnelLogFromMessage(message) ?? "tunnel failed to start");
+    }
+    if (status === "ready") {
+      const url = tunnelUrlFromMessage(message) ?? "";
+      const password = tunnelPasswordFromMessage(message) ?? remotePasswordRef.current;
+      setTunnelMode("cloudflare");
+      setTunnelUrl(url);
+      setTunnelError(null);
+      setTunnelLog("public tunnel ready");
+      if (password) {
+        setRemotePassword(password);
+        remotePasswordRef.current = password;
+        void saveRemotePassword(password);
+      }
+      if (url && password) void connectTunnel(url, password);
+    }
   }
 
   function applyStreamEvents(events: StreamEvent[], target: OpencodeClient, sessionId?: string) {
@@ -245,13 +350,23 @@ export default function App() {
     }
   }
 
-  async function connect(next: ConnectionSettings, scannedSessionId?: string, modeOverride?: KeepAwakeMode) {
+  async function connect(next: ConnectionSettings, scannedSessionId?: string, modeOverride?: KeepAwakeMode, skipLocalSave = false) {
     setBusy(true);
     setError(null);
     try {
       const nextClient = new OpencodeClient(next);
       await nextClient.health();
       await saveConnection(next);
+      if (!skipLocalSave && !isTunnelConnection(next)) {
+        await saveLocalConnection(next);
+        setLocalSettings(next);
+        localSettingsRef.current = next;
+      }
+      if (isTunnelConnection(next)) {
+        await saveTunnelConnection(next);
+        setTunnelSettings(next);
+        tunnelSettingsRef.current = next;
+      }
       setSettings(next);
       void sendKeepAwakeMode(nextClient, modeOverride ?? keepAwakeMode);
       setCommands(await nextClient.commands());
@@ -259,8 +374,10 @@ export default function App() {
       await refresh(nextClient);
       const restored = scannedSessionId ? await restoreSession(nextClient, scannedSessionId) : await restoreActiveSession(nextClient);
       if (!restored) announceWaiting(nextClient, true, modeOverride ?? keepAwakeMode);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "connect failed");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -415,6 +532,92 @@ export default function App() {
     }
   }
 
+  async function changeTunnelMode(mode: TunnelMode, target = client, capability = tunnelCapability) {
+    if (mode === "cloudflare" && capability !== "ready") return;
+    setTunnelMode(mode);
+    tunnelStartRequested.current = mode === "cloudflare";
+    setTunnelError(null);
+    setTunnelLog(mode === "cloudflare" ? "starting cloudflare tunnel" : null);
+    if (mode === "off") {
+      setTunnelUrl("");
+      void restoreLocalConnection();
+    }
+    pendingTunnelMode.current = mode;
+    await saveTunnelMode(mode);
+    if (target) void sendTunnelMode(target, mode);
+  }
+
+  async function connectTunnel(url: string, password: string) {
+    if (tunnelSwitchPending.current && settingsRef.current?.baseUrl === url) return;
+    tunnelSwitchPending.current = true;
+    const next = { baseUrl: url, username: "opencode", password };
+    if (settingsRef.current && !isTunnelConnection(settingsRef.current)) {
+      await saveLocalConnection(settingsRef.current);
+      setLocalSettings(settingsRef.current);
+      localSettingsRef.current = settingsRef.current;
+    }
+    const deadline = Date.now() + 45000;
+    let lastError = "public tunnel not reachable yet";
+    let lastLoggedError = "";
+    let appReachable = false;
+    if (!tunnelLog) setTunnelLog("checking public tunnel from app");
+    while (Date.now() < deadline) {
+      try {
+        await new OpencodeClient(next).health();
+        appReachable = true;
+        break;
+      } catch (error) {
+        lastError = tunnelConnectError(error);
+        if (lastError !== lastLoggedError) {
+          lastLoggedError = lastError;
+          setTunnelLog((current) => current || lastError);
+        }
+        await sleep(1500);
+      }
+    }
+    if (!appReachable) {
+      tunnelSwitchPending.current = false;
+      setTunnelError(lastError);
+      setTunnelLog(null);
+      return;
+    }
+    const connected = await connect(next, activeSessionIdRef.current, keepAwakeMode, true);
+    tunnelSwitchPending.current = false;
+    if (!connected) {
+      setTunnelError("tunnel ready, but app could not connect");
+      setTunnelLog("app health check failed through public tunnel");
+      return;
+    }
+    await saveTunnelConnection(next);
+    setTunnelSettings(next);
+    tunnelSettingsRef.current = next;
+  }
+
+  async function restoreLocalConnection() {
+    if (tunnelSwitchPending.current || tunnelRestorePending.current || !isTunnelConnection(settingsRef.current) || !localSettingsRef.current) return;
+    tunnelRestorePending.current = true;
+    try {
+      await connect(localSettingsRef.current, undefined, keepAwakeMode, true);
+    } finally {
+      tunnelRestorePending.current = false;
+    }
+  }
+
+  function probeTunnel(target: OpencodeClient) {
+    setTunnelCapability("checking");
+    setTunnelLog("checking desktop for cloudflared");
+    if (tunnelProbeTimer.current) clearTimeout(tunnelProbeTimer.current);
+    tunnelProbeTimer.current = setTimeout(() => {
+      setTunnelCapability("unsupported");
+      if (pendingTunnelMode.current === "cloudflare") {
+        pendingTunnelMode.current = "off";
+        setTunnelMode("off");
+        void saveTunnelMode("off");
+      }
+    }, 3000);
+    void sendTunnelProbe(target);
+  }
+
   if (!fontsLoaded) return null;
 
   return (
@@ -423,11 +626,11 @@ export default function App() {
       <SafeAreaProvider>
         <SafeAreaView style={styles.safeArea}>
           {!client ? (
-            <ConnectScreen initial={settings} busy={busy} error={error} onConnect={connect} />
+            <ConnectScreen initial={settings} localRecent={localSettings} tunnelRecent={tunnelSettings} busy={busy} error={error} onConnect={connect} />
           ) : active ? (
             <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
           ) : screen === "settings" ? (
-            <SettingsScreen keepAwakeMode={keepAwakeMode} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} />
+            <SettingsScreen keepAwakeMode={keepAwakeMode} tunnelMode={tunnelMode} tunnelCapability={tunnelCapability} tunnelUrl={tunnelUrl} tunnelError={tunnelError} tunnelLog={tunnelLog} remoteAccessInUse={isTunnelConnection(settings)} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} onChangeTunnelMode={(mode) => void changeTunnelMode(mode)} />
           ) : (
             <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
           )}
@@ -465,6 +668,69 @@ async function announceDisconnected(client: OpencodeClient) {
 
 function sendKeepAwakeMode(client: OpencodeClient, mode: KeepAwakeMode) {
   return client.executeTuiCommand(`openremote.keepawake.${mode}`).catch(() => undefined);
+}
+
+function sendTunnelProbe(client: OpencodeClient) {
+  void client.executeTuiCommand("openremote.tunnel.probe").catch(() => undefined);
+  return client.showToast("openremote tunnel probe").catch(() => undefined);
+}
+
+function sendTunnelMode(client: OpencodeClient, mode: TunnelMode) {
+  void client.executeTuiCommand(`openremote.tunnel.${mode}`).catch(() => undefined);
+  return client.showToast(`openremote tunnel ${mode}`).catch(() => undefined);
+}
+
+function tunnelCapabilityFromMessage(message: string): TunnelCapability | undefined {
+  const match = message.match(/^openremote tunnel capability cloudflare=(ready|cloudflared-missing|unsupported)\b/);
+  return match?.[1] as TunnelCapability | undefined;
+}
+
+function tunnelStatusFromMessage(message: string) {
+  return message.match(/^openremote tunnel status (off|ready|starting|error)\b/)?.[1];
+}
+
+function tunnelLogFromMessage(message: string) {
+  return message.match(/^openremote tunnel log (.+)$/)?.[1];
+}
+
+function tunnelErrorFromMessage(message: string) {
+  const value = message.match(/\breason=([^\s]+)/)?.[1];
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function tunnelConnectError(error: unknown) {
+  const cause = error instanceof Error ? error.cause as { code?: string; message?: string } | undefined : undefined;
+  const message = error instanceof Error ? error.message : String(error || "connect failed");
+  const causeMessage = cause?.message ?? "";
+  if (cause?.code === "ENOTFOUND" || /ENOTFOUND|getaddrinfo/i.test(`${message} ${causeMessage}`)) return "DNS could not resolve cloudflare tunnel";
+  if (cause?.code === "ECONNRESET") return "connection reset while reaching cloudflare tunnel";
+  if (cause?.code === "ECONNREFUSED") return "connection refused while reaching cloudflare tunnel";
+  if (cause?.code === "CERT_HAS_EXPIRED" || cause?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") return "certificate check failed while reaching cloudflare tunnel";
+  if (/aborted/i.test(message)) return "timeout while reaching cloudflare tunnel";
+  if (/typo in the url or port|Unable to connect\. Is the computer able to access the url\?/i.test(message) || message === "Network request failed" || message === "fetch failed") return "network could not reach cloudflare tunnel";
+  return message;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function tunnelUrlFromMessage(message: string) {
+  return message.match(/\burl=(https:\/\/\S+)/)?.[1];
+}
+
+function tunnelPasswordFromMessage(message: string) {
+  return message.match(/\bpassword=([A-Za-z0-9_-]+)/)?.[1];
+}
+
+function isTunnelConnection(settings: ConnectionSettings | null | undefined) {
+  if (!settings) return false;
+  return settings.username === "opencode" && /^https:\/\/[^/]+\.trycloudflare\.com$/i.test(settings.baseUrl);
 }
 
 function deviceName() {

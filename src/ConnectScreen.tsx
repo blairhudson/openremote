@@ -10,12 +10,14 @@ import { colors, fonts, spacing } from "./theme";
 
 type Props = {
   initial?: ConnectionSettings | null;
+  localRecent?: ConnectionSettings | null;
+  tunnelRecent?: ConnectionSettings | null;
   busy: boolean;
   error?: string | null;
   onConnect: (settings: ConnectionSettings, sessionId?: string) => void;
 };
 
-export function ConnectScreen({ initial, busy, error, onConnect }: Props) {
+export function ConnectScreen({ initial, localRecent, tunnelRecent, busy, error, onConnect }: Props) {
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "http://opencode.local:4096");
   const [username, setUsername] = useState(initial?.username ?? "opencode");
   const [password, setPassword] = useState(initial?.password ?? "");
@@ -47,7 +49,15 @@ export function ConnectScreen({ initial, busy, error, onConnect }: Props) {
     setBaseUrl(server.baseUrl);
     setUsername(server.username);
     setPassword(server.password);
-    onConnect({ baseUrl: server.baseUrl, username: server.username, password: server.password });
+    if (server.password) onConnect({ baseUrl: server.baseUrl, username: server.username, password: server.password });
+  }
+
+  function connectRecent(settings: ConnectionSettings) {
+    if (busy) return;
+    setBaseUrl(settings.baseUrl);
+    setUsername(settings.username);
+    setPassword(settings.password);
+    onConnect(settings);
   }
 
   async function openScanner() {
@@ -104,6 +114,9 @@ export function ConnectScreen({ initial, busy, error, onConnect }: Props) {
             {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13}>no opencode servers found</TerminalText> : null}
           </View>
         ) : null}
+
+        {localRecent ? <RecentServerRow label="reconnect last local server" settings={localRecent} busy={busy} onPress={connectRecent} /> : null}
+        {tunnelRecent ? <RecentServerRow label="reconnect last tunnel server" settings={tunnelRecent} busy={busy} onPress={connectRecent} /> : null}
 
         <RailPanel tone={error ? "red" : "yellow"}>
           <InputLabel label="server" onPress={() => serverInputRef.current?.focus()} />
@@ -162,6 +175,15 @@ function DiscoveredServerRow({ server, busy, onPress }: { server: DiscoveredServ
     <Pressable disabled={busy} onPress={() => onPress(server)} style={styles.discoveredRow}>
       <TerminalText tone="cyan" numberOfLines={1}>{server.name}</TerminalText>
       <TerminalText tone="muted" size={13} numberOfLines={1}>{server.baseUrl.replace(/^https?:\/\//, "")}</TerminalText>
+    </Pressable>
+  );
+}
+
+function RecentServerRow({ label, settings, busy, onPress }: { label: string; settings: ConnectionSettings; busy: boolean; onPress: (settings: ConnectionSettings) => void }) {
+  return (
+    <Pressable disabled={busy} onPress={() => onPress(settings)} style={styles.discoveredRow}>
+      <TerminalText tone="yellow" numberOfLines={1}>{label}</TerminalText>
+      <TerminalText tone="muted" size={13} numberOfLines={1}>{settings.baseUrl.replace(/^https?:\/\//, "")}</TerminalText>
     </Pressable>
   );
 }

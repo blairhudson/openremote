@@ -45,6 +45,7 @@
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "@opentui/solid": "^0.2.12",
+    "bonjour-service": "^1.4.0",
     "qrcode-terminal": "^0.12.0",
     "solid-js": "^1.9.10"
   },

@@ -88,7 +88,7 @@ export function useMdnsServers() {
 
 function serverFromService(service: Service, type: string): DiscoveredServer | undefined {
   if (!service.port) return undefined;
-  if (!serviceName(service).startsWith("opencode-")) return undefined;
+  if (!isOpenRemoteServiceName(serviceName(service))) return undefined;
   const host = preferredHost(service);
   if (!host) return undefined;
   const username = service.txt?.username || "opencode";
@@ -100,6 +100,10 @@ function serverFromService(service: Service, type: string): DiscoveredServer | u
 
 function serviceName(service: Service) {
   return (service.name || "").toLowerCase();
+}
+
+function isOpenRemoteServiceName(name: string) {
+  return name.startsWith("opencode-") || /^or[a-z0-9]{3}$/.test(name);
 }
 
 function preferredHost(service: Service) {

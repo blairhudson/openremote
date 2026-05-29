@@ -33,7 +33,8 @@ type PermissionRepliedEvent = { id: string; type: "permission.replied"; properti
 type QuestionAskedEvent = { id: string; type: "question.asked"; properties: QuestionRequest };
 type QuestionRepliedEvent = { id: string; type: "question.replied"; properties: { sessionID: string; requestID: string; answers: string[][] } };
 type QuestionRejectedEvent = { id: string; type: "question.rejected"; properties: { sessionID: string; requestID: string } };
-export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent) & { serverDirectory?: string };
+type TuiToastEvent = { id?: string; type: "tui.toast.show"; properties?: { message?: string; title?: string }; message?: string };
+export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent | TuiToastEvent) & { serverDirectory?: string };
 
 export type Health = { healthy: boolean; version: string };
 export type MessageBundle = {

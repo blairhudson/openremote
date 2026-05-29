@@ -1,23 +1,37 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { CommandButton, RailPanel, StatusLine, TerminalText } from "./components";
-import type { KeepAwakeMode } from "./storage";
+import type { KeepAwakeMode, TunnelMode } from "./storage";
 import { colors, spacing } from "./theme";
+
+export type TunnelCapability = "checking" | "ready" | "cloudflared-missing" | "unsupported";
 
 type Props = {
   keepAwakeMode: KeepAwakeMode;
+  tunnelMode: TunnelMode;
+  tunnelCapability: TunnelCapability;
+  tunnelUrl: string;
+  tunnelError?: string | null;
+  tunnelLog?: string | null;
+  remoteAccessInUse: boolean;
   serverUrl: string;
   onBack: () => void;
   onChangeKeepAwakeMode: (mode: KeepAwakeMode) => void;
+  onChangeTunnelMode: (mode: TunnelMode) => void;
 };
 
 const keepAwakeOptions: { mode: KeepAwakeMode; label: string; description: string }[] = [
-  { mode: "auto", label: "auto", description: "keep desktop awake while remote is waiting or connected" },
+  { mode: "auto", label: "always", description: "keep desktop awake while remote is waiting or connected" },
   { mode: "connected", label: "connected", description: "keep desktop awake only inside an active chat" },
   { mode: "off", label: "off", description: "never request desktop keep-awake" },
 ];
 
-export function SettingsScreen({ keepAwakeMode, serverUrl, onBack, onChangeKeepAwakeMode }: Props) {
+const tunnelOptions: { mode: TunnelMode; label: string; description: string }[] = [
+  { mode: "off", label: "off", description: "use local network and mDNS" },
+  { mode: "cloudflare", label: "cloudflare", description: "start a temporary Cloudflare tunnel on desktop" },
+];
+
+export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tunnelUrl, tunnelError, tunnelLog, remoteAccessInUse, serverUrl, onBack, onChangeKeepAwakeMode, onChangeTunnelMode }: Props) {
   return (
     <View style={styles.wrap}>
       <StatusLine
@@ -48,8 +62,44 @@ export function SettingsScreen({ keepAwakeMode, serverUrl, onBack, onChangeKeepA
           </View>
         </View>
       </RailPanel>
+      <RailPanel tone="cyan">
+        <View style={styles.section}>
+          <TerminalText bold>Remote access</TerminalText>
+          <TerminalText tone="muted" size={13}>Let OpenRemote connect when phone and desktop are on different networks.</TerminalText>
+          {tunnelUrl && <TerminalText tone="muted" size={13}>tunnel: {tunnelUrl}</TerminalText>}
+          {tunnelError ? <TerminalText tone="red" size={13}>{tunnelError}</TerminalText> : null}
+          {tunnelLog ? <TerminalText tone="muted" size={13}>{tunnelLog}</TerminalText> : null}
+          <View style={styles.options}>
+            {tunnelOptions.map((option) => {
+              const selected = option.mode === tunnelMode;
+              const disabledReason = option.mode === "cloudflare" ? cloudflareDisabledReason(tunnelCapability) : offDisabledReason(option.mode, remoteAccessInUse);
+              const disabled = Boolean(disabledReason);
+              return (
+                <Pressable key={option.mode} disabled={disabled} onPress={() => onChangeTunnelMode(option.mode)} style={[styles.option, selected && styles.optionSelected, disabled && styles.optionDisabled]}>
+                  <View style={styles.optionHeader}>
+                    <TerminalText tone={selected ? "yellow" : disabled ? "muted" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
+                  </View>
+                  <TerminalText tone="muted" size={13}>{disabledReason ?? option.description}</TerminalText>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </RailPanel>
     </View>
   );
+}
+
+function cloudflareDisabledReason(capability: TunnelCapability) {
+  if (capability === "ready") return undefined;
+  if (capability === "checking") return "checking desktop for cloudflared";
+  if (capability === "cloudflared-missing") return "install cloudflared on desktop first";
+  return "desktop did not return tunnel status";
+}
+
+function offDisabledReason(mode: TunnelMode, remoteAccessInUse: boolean) {
+  if (mode === "off" && remoteAccessInUse) return "disconnect from tunnel before turning remote access off";
+  return undefined;
 }
 
 function serverLabel(url: string) {
@@ -86,6 +136,9 @@ const styles = StyleSheet.create({
   },
   optionSelected: {
     borderColor: colors.yellow,
+  },
+  optionDisabled: {
+    opacity: 0.55,
   },
   optionHeader: {
     flexDirection: "row",
