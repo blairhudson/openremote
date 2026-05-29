@@ -81,8 +81,7 @@ pre,
   position: sticky;
   top: 0;
   z-index: 10;
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
+  width: 100%;
   border-bottom: 1px solid var(--line);
   background: rgba(21, 23, 24, 0.9);
   backdrop-filter: blur(12px);
