@@ -22,6 +22,16 @@ on:
         required: true
         default: true
         type: boolean
+      npm_version_bump:
+        description: "npm semver bump when publishing opencode-openremote"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
       android_play:
         description: "Build Android AAB and submit to Google Play internal testing"
         required: true
@@ -91,25 +101,25 @@ jobs:
         env:
           VERSION_BUMP: ${{ inputs.version_bump }}
           REUSE_CURRENT_APP_VERSION: ${{ inputs.reuse_current_app_version }}
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
+          NPM_VERSION_BUMP: ${{ inputs.npm_version_bump }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const app = require("./app.json");
           const plugin = require("./packages/opencode-plugin/package.json");
 
-          const current = app.expo.version;
-          const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
+          function bumpVersion(current, bump, label) {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
 
-          if (!match) {
-            throw new Error(`app.json expo.version must be semver, got ${current}`);
-          }
+            if (!match) {
+              throw new Error(`${label} must be semver, got ${current}`);
+            }
 
-          let major = Number(match[1]);
-          let minor = Number(match[2]);
-          let patch = Number(match[3]);
-          const reuse = process.env.REUSE_CURRENT_APP_VERSION === "true";
+            let major = Number(match[1]);
+            let minor = Number(match[2]);
+            let patch = Number(match[3]);
 
-          if (!reuse) {
-            switch (process.env.VERSION_BUMP) {
+            switch (bump) {
               case "major":
                 major += 1;
                 minor = 0;
@@ -122,17 +132,32 @@ jobs:
               case "patch":
                 patch += 1;
                 break;
+              case "none":
+                break;
               default:
-                throw new Error(`Unsupported version bump: ${process.env.VERSION_BUMP}`);
+                throw new Error(`Unsupported version bump: ${bump}`);
             }
+
+            return `${major}.${minor}.${patch}`;
           }
 
-          const appVersion = `${major}.${minor}.${patch}`;
+          const currentAppVersion = app.expo.version;
+          const currentNpmVersion = plugin.version;
+          const reuse = process.env.REUSE_CURRENT_APP_VERSION === "true";
+          const publishNpm = process.env.PUBLISH_NPM === "true";
+          const npmBump = publishNpm ? process.env.NPM_VERSION_BUMP : "none";
+
+          if (reuse && npmBump !== "none") {
+            throw new Error("Cannot bump npm version while reusing an existing app tag");
+          }
+
+          const appVersion = reuse ? currentAppVersion : bumpVersion(currentAppVersion, process.env.VERSION_BUMP, "app.json expo.version");
           const releaseTag = `v${appVersion}`;
+          const npmVersion = bumpVersion(currentNpmVersion, npmBump, "packages/opencode-plugin/package.json version");
 
           console.log(`app_version=${appVersion}`);
           console.log(`release_tag=${releaseTag}`);
-          console.log(`npm_version=${plugin.version}`);
+          console.log(`npm_version=${npmVersion}`);
           NODE
 
       - name: Check tag availability
@@ -166,12 +191,26 @@ jobs:
           writeFileSync(path, `${JSON.stringify(app, null, 2)}\n`);
           NODE
 
+      - name: Bump npm package version
+        if: ${{ inputs.publish_npm && inputs.npm_version_bump != 'none' }}
+        env:
+          NPM_VERSION: ${{ steps.version.outputs.npm_version }}
+        run: |
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs");
+
+          const path = "packages/opencode-plugin/package.json";
+          const pkg = JSON.parse(readFileSync(path, "utf8"));
+          pkg.version = process.env.NPM_VERSION;
+          writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
       - name: Commit and tag release
         if: ${{ !inputs.reuse_current_app_version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.json
+          git add app.json packages/opencode-plugin/package.json
           git commit -m "Release ${{ steps.version.outputs.release_tag }}"
           git tag "${{ steps.version.outputs.release_tag }}"
           git push origin HEAD:main
@@ -219,8 +258,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Publish opencode-openremote
+        env:
+          NPM_VERSION: ${{ needs.prepare_release.outputs.npm_version }}
         working-directory: packages/opencode-plugin
-        run: npm publish --access public --provenance
+        run: |
+          if npm view "opencode-openremote@${NPM_VERSION}" version >/dev/null 2>&1; then
+            echo "opencode-openremote@${NPM_VERSION} already published; skipping"
+            exit 0
+          fi
+
+          npm publish --access public --provenance
 
   mobile_release:
     name: EAS mobile release
@@ -245,7 +292,7 @@ jobs:
           npx eas-cli@latest workflow:run .eas/workflows/release-mobile.yml \
             --non-interactive \
             --wait \
-            --ref "${{ needs.prepare_release.outputs.release_tag }}" \
+            --ref "${{ needs.prepare_release.outputs.release_sha }}" \
             -F android_play=${{ inputs.android_play }} \
             -F ios_testflight=${{ inputs.ios_testflight }} \
             -F release_tag=${{ needs.prepare_release.outputs.release_tag }} \
