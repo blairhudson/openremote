@@ -55,6 +55,10 @@ The optional OpenCode plugin adds the OpenRemote sidebar QR code and keep-awake 
 
 See [OpenCode plugin setup](https://openremote.blairhudson.com/docs/plugin) for the `npx` installer and manual config options.
 
+## Affiliation
+
+OpenRemote is an independent project by Blair Hudson. It is not built by the OpenCode team and is not affiliated with OpenCode.
+
 ## License
 
 OpenRemote is licensed under FSL-1.1-MIT. Copyright 2026 Blair Hudson.

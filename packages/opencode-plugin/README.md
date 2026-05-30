@@ -30,4 +30,8 @@ Restart OpenCode after setup.
 
 Docs: https://openremote.blairhudson.com
 
+## Affiliation
+
+opencode-openremote is an independent project by Blair Hudson. It is not built by the OpenCode team and is not affiliated with OpenCode.
+
 License: FSL-1.1-MIT. Copyright 2026 Blair Hudson.
