@@ -1,0 +1,63 @@
+name: Release mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_play:
+        type: boolean
+        required: true
+        default: true
+      ios_testflight:
+        type: boolean
+        required: true
+        default: true
+      release_tag:
+        type: string
+        required: true
+      app_version:
+        type: string
+        required: true
+      npm_version:
+        type: string
+        required: true
+
+jobs:
+  build_android_play:
+    name: Build Android AAB
+    if: ${{ inputs.android_play }}
+    type: build
+    params:
+      platform: android
+      profile: production
+      message: OpenRemote ${{ inputs.release_tag }}
+
+  submit_android_play:
+    name: Submit Android to Play internal
+    if: ${{ inputs.android_play }}
+    needs: [build_android_play]
+    type: submit
+    params:
+      build_id: ${{ needs.build_android_play.outputs.build_id }}
+      profile: production
+
+  build_ios_testflight:
+    name: Build iOS
+    if: ${{ inputs.ios_testflight }}
+    type: build
+    params:
+      platform: ios
+      profile: production
+      message: OpenRemote ${{ inputs.release_tag }}
+
+  submit_ios_testflight:
+    name: Submit iOS to TestFlight
+    if: ${{ inputs.ios_testflight }}
+    needs: [build_ios_testflight]
+    type: testflight
+    params:
+      build_id: ${{ needs.build_ios_testflight.outputs.build_id }}
+      profile: production
+      changelog: |
+        OpenRemote ${{ inputs.release_tag }}
+        App version: ${{ inputs.app_version }}
+        opencode-openremote: ${{ inputs.npm_version }}

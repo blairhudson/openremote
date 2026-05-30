@@ -1,0 +1,274 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: "App semver bump"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      reuse_current_app_version:
+        description: "Do not bump app.json; reuse current app.json version/tag"
+        required: true
+        default: false
+        type: boolean
+      publish_npm:
+        description: "Publish opencode-openremote to npm"
+        required: true
+        default: true
+        type: boolean
+      android_play:
+        description: "Build Android AAB and submit to Google Play internal testing"
+        required: true
+        default: true
+        type: boolean
+      ios_testflight:
+        description: "Build iOS and submit to TestFlight"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare_release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.release.outputs.app_version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      npm_version: ${{ steps.release.outputs.npm_version }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check branch
+        run: test "${GITHUB_REF}" = "refs/heads/main"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test:ci
+
+      - name: Check Expo config
+        run: bunx expo config --type public --json
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Compute release version
+        id: version
+        env:
+          VERSION_BUMP: ${{ inputs.version_bump }}
+          REUSE_CURRENT_APP_VERSION: ${{ inputs.reuse_current_app_version }}
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const app = require("./app.json");
+          const plugin = require("./packages/opencode-plugin/package.json");
+
+          const current = app.expo.version;
+          const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
+
+          if (!match) {
+            throw new Error(`app.json expo.version must be semver, got ${current}`);
+          }
+
+          let major = Number(match[1]);
+          let minor = Number(match[2]);
+          let patch = Number(match[3]);
+          const reuse = process.env.REUSE_CURRENT_APP_VERSION === "true";
+
+          if (!reuse) {
+            switch (process.env.VERSION_BUMP) {
+              case "major":
+                major += 1;
+                minor = 0;
+                patch = 0;
+                break;
+              case "minor":
+                minor += 1;
+                patch = 0;
+                break;
+              case "patch":
+                patch += 1;
+                break;
+              default:
+                throw new Error(`Unsupported version bump: ${process.env.VERSION_BUMP}`);
+            }
+          }
+
+          const appVersion = `${major}.${minor}.${patch}`;
+          const releaseTag = `v${appVersion}`;
+
+          console.log(`app_version=${appVersion}`);
+          console.log(`release_tag=${releaseTag}`);
+          console.log(`npm_version=${plugin.version}`);
+          NODE
+
+      - name: Check tag availability
+        if: ${{ !inputs.reuse_current_app_version }}
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.release_tag }}" | grep -q .; then
+            echo "Tag already exists: ${{ steps.version.outputs.release_tag }}"
+            exit 1
+          fi
+
+      - name: Reuse existing tag
+        if: ${{ inputs.reuse_current_app_version }}
+        run: |
+          if ! git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.release_tag }}" | grep -q .; then
+            echo "Tag does not exist: ${{ steps.version.outputs.release_tag }}"
+            exit 1
+          fi
+          git checkout "${{ steps.version.outputs.release_tag }}"
+
+      - name: Bump app version
+        if: ${{ !inputs.reuse_current_app_version }}
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs");
+
+          const path = "app.json";
+          const app = JSON.parse(readFileSync(path, "utf8"));
+          app.expo.version = process.env.APP_VERSION;
+          writeFileSync(path, `${JSON.stringify(app, null, 2)}\n`);
+          NODE
+
+      - name: Commit and tag release
+        if: ${{ !inputs.reuse_current_app_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.json
+          git commit -m "Release ${{ steps.version.outputs.release_tag }}"
+          git tag "${{ steps.version.outputs.release_tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.version.outputs.release_tag }}"
+
+      - name: Resolve release outputs
+        id: release
+        run: |
+          release_sha="$(git rev-parse HEAD)"
+          app_version="$(node -p "require('./app.json').expo.version")"
+          npm_version="$(node -p "require('./packages/opencode-plugin/package.json').version")"
+          {
+            echo "app_version=$app_version"
+            echo "release_tag=${{ steps.version.outputs.release_tag }}"
+            echo "release_sha=$release_sha"
+            echo "npm_version=$npm_version"
+          } >> "$GITHUB_OUTPUT"
+
+  npm:
+    name: Publish npm package
+    needs: prepare_release
+    if: ${{ inputs.publish_npm }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare_release.outputs.release_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Publish opencode-openremote
+        working-directory: packages/opencode-plugin
+        run: npm publish --access public --provenance
+
+  mobile_release:
+    name: EAS mobile release
+    needs: prepare_release
+    if: ${{ inputs.android_play || inputs.ios_testflight }}
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare_release.outputs.release_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Trigger EAS mobile release workflow
+        run: |
+          npx eas-cli@latest workflow:run .eas/workflows/release-mobile.yml \
+            --non-interactive \
+            --wait \
+            --ref "${{ needs.prepare_release.outputs.release_tag }}" \
+            -F android_play=${{ inputs.android_play }} \
+            -F ios_testflight=${{ inputs.ios_testflight }} \
+            -F release_tag=${{ needs.prepare_release.outputs.release_tag }} \
+            -F app_version=${{ needs.prepare_release.outputs.app_version }} \
+            -F npm_version=${{ needs.prepare_release.outputs.npm_version }}
+
+  summary:
+    name: Release summary
+    needs:
+      - prepare_release
+      - npm
+      - mobile_release
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary
+        run: |
+          {
+            echo "## OpenRemote Release"
+            echo ""
+            echo "- App tag: ${{ needs.prepare_release.outputs.release_tag }}"
+            echo "- App version: ${{ needs.prepare_release.outputs.app_version }}"
+            echo "- npm package: opencode-openremote@${{ needs.prepare_release.outputs.npm_version }}"
+            echo "- npm publish: ${{ needs.npm.result }}"
+            echo "- EAS mobile release: ${{ needs.mobile_release.result }}"
+          } >> "$GITHUB_STEP_SUMMARY"
