@@ -111,7 +111,7 @@ export function ConnectScreen({ initial, localRecent, tunnelRecent, busy, error,
               </TerminalText>
             </Pressable>
             {discovery.servers.map((server) => <DiscoveredServerRow key={server.id} server={server} busy={busy} onPress={connectDiscovered} />)}
-            {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13}>no opencode servers found</TerminalText> : null}
+            {!discovery.searching && !discovery.servers.length ? <TerminalText tone="dim" size={13} style={styles.discoveryEmpty}>no opencode servers found</TerminalText> : null}
           </View>
         ) : null}
 
@@ -286,6 +286,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   discoveryTitle: {
+    textAlign: "center",
+  },
+  discoveryEmpty: {
     textAlign: "center",
   },
   discoveredRow: {

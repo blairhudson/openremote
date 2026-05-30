@@ -195,7 +195,6 @@ export default function App() {
       setTunnelMode("cloudflare");
       setTunnelUrl(url);
       setTunnelError(null);
-      setTunnelLog("public tunnel ready");
       if (password) {
         setRemotePassword(password);
         remotePasswordRef.current = password;
@@ -585,7 +584,6 @@ export default function App() {
     tunnelSwitchPending.current = false;
     if (!connected) {
       setTunnelError("tunnel ready, but app could not connect");
-      setTunnelLog("app health check failed through public tunnel");
       return;
     }
     await saveTunnelConnection(next);

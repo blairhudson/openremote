@@ -17,9 +17,33 @@ const id = "opencode-openremote";
 
 const username = () => process.env.OPENCODE_SERVER_USERNAME ?? "opencode";
 const password = () => process.env.OPENCODE_SERVER_PASSWORD ?? "";
-const remoteUsername = () => "opencode";
+const remoteUsername = () => process.env.OPENCODE_REMOTE_USERNAME ?? "opencode";
 const proxyBindHost = "0.0.0.0";
-const passwordRotationMs = 10_000;
+const defaultPasswordRotationSeconds = 30;
+
+function remoteSecret() {
+  return process.env.OPENCODE_REMOTE_SECRET ?? "";
+}
+
+function passwordRotationSeconds() {
+  const value = Number(process.env.OPENCODE_REMOTE_SECRET_ROTATION_SECONDS ?? defaultPasswordRotationSeconds);
+  if (!Number.isFinite(value)) return defaultPasswordRotationSeconds;
+  return Math.min(3600, Math.max(0, Math.floor(value)));
+}
+
+function passwordRotationMs() {
+  return passwordRotationSeconds() * 1000;
+}
+
+function shouldRotatePassword() {
+  return !remoteSecret() && passwordRotationSeconds() > 0;
+}
+
+function maxRemoteClients() {
+  const value = Number(process.env.OPENCODE_REMOTE_MAX_CLIENTS ?? 1);
+  if (!Number.isFinite(value) || value < 0) return 1;
+  return Math.floor(value);
+}
 
 function lanHost() {
   const interfaces = networkInterfaces();
@@ -35,7 +59,7 @@ function remoteUrl(sessionId: string | undefined, port: number) {
   ensureProxyPassword();
   const url = new URL(`http://${lanHost()}:${port}`);
   url.username = remoteUsername();
-  url.password = currentTunnelPassword;
+  url.password = currentTunnelPassword();
   if (sessionId) url.pathname = `/s/${encodeURIComponent(sessionId)}`;
   return url.toString();
 }
@@ -104,10 +128,10 @@ let bonjour: Bonjour | undefined;
 let mdnsService: { stop: (callback?: () => void) => void } | undefined;
 let mdnsName = "";
 let tunnelStartPending = false;
-let currentTunnelPassword = "";
-let previousTunnelPassword = "";
 let currentProxyPort: number | undefined;
 let passwordRotation: ReturnType<typeof setInterval> | undefined;
+let passwordRotatesAt = 0;
+const remoteClients = new Set<string>();
 let cleanupInstalled = false;
 let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
@@ -125,6 +149,10 @@ const [tunnelStatus, setTunnelStatus] = createSignal<"off" | "checking" | "start
 const [tunnelUrl, setTunnelUrl] = createSignal("");
 const [tunnelLog, setTunnelLog] = createSignal("");
 const [tunnelProxyPort, setTunnelProxyPort] = createSignal<number | undefined>();
+const [currentTunnelPassword, setCurrentTunnelPassword] = createSignal("");
+const [previousTunnelPassword, setPreviousTunnelPassword] = createSignal("");
+const [qrVersion, setQrVersion] = createSignal(0);
+const [qrSecondsRemaining, setQrSecondsRemaining] = createSignal(passwordRotationSeconds());
 
 function requestRender() {
   latestApi?.renderer.requestRender();
@@ -195,6 +223,7 @@ function stopTunnel() {
 
 function stopTunnelProxy() {
   stopPasswordRotation();
+  remoteClients.clear();
   unpublishLanService();
   tunnelProxy?.close();
   tunnelProxy = undefined;
@@ -243,14 +272,14 @@ function cloudflareCapability() {
 }
 
 function validRemoteAuth(header: string | string[] | undefined) {
-  if (!currentTunnelPassword) return false;
+  if (!currentTunnelPassword()) return false;
   const value = Array.isArray(header) ? header[0] : header;
   if (!value?.startsWith("Basic ")) return false;
   const decoded = Buffer.from(value.slice("Basic ".length), "base64").toString("utf8");
   const split = decoded.indexOf(":");
   if (split === -1) return false;
   const password = decoded.slice(split + 1);
-  return decoded.slice(0, split) === remoteUsername() && (password === currentTunnelPassword || (!!previousTunnelPassword && password === previousTunnelPassword));
+  return decoded.slice(0, split) === remoteUsername() && (password === currentTunnelPassword() || (!!previousTunnelPassword() && password === previousTunnelPassword()));
 }
 
 function generateTunnelPassword() {
@@ -269,35 +298,55 @@ function ensureMdnsName() {
 }
 
 function ensureProxyPassword() {
-  if (!currentTunnelPassword) currentTunnelPassword = generateTunnelPassword();
+  const staticSecret = remoteSecret();
+  if (staticSecret) {
+    if (currentTunnelPassword() !== staticSecret) setCurrentTunnelPassword(staticSecret);
+    return;
+  }
+  if (!currentTunnelPassword()) setCurrentTunnelPassword(generateTunnelPassword());
 }
 
 function refreshProxyPassword() {
+  if (!shouldRotatePassword()) return;
   ensureProxyPassword();
-  previousTunnelPassword = currentTunnelPassword;
-  currentTunnelPassword = generateTunnelPassword();
+  setPreviousTunnelPassword(currentTunnelPassword());
+  setCurrentTunnelPassword(generateTunnelPassword());
+  passwordRotatesAt = Date.now() + passwordRotationMs();
   cachedQrUrl = "";
   cachedQrLines = [];
+  setQrSecondsRemaining(passwordRotationSeconds());
+  setQrVersion((value) => value + 1);
   requestRender();
 }
 
 function startPasswordRotation() {
   if (passwordRotation || (remoteConnected() && remoteStatus() === "connected")) return;
   ensureProxyPassword();
+  if (!shouldRotatePassword()) {
+    setQrSecondsRemaining(0);
+    requestRender();
+    return;
+  }
+  passwordRotatesAt = Date.now() + passwordRotationMs();
+  setQrSecondsRemaining(passwordRotationSeconds());
   passwordRotation = setInterval(() => {
     if (remoteConnected() && remoteStatus() === "connected") {
       stopPasswordRotation();
       return;
     }
-    refreshProxyPassword();
-  }, passwordRotationMs);
+    const secondsRemaining = Math.max(0, Math.ceil((passwordRotatesAt - Date.now()) / 1000));
+    setQrSecondsRemaining(secondsRemaining);
+    if (secondsRemaining <= 0) refreshProxyPassword();
+    else requestRender();
+  }, 1000);
   passwordRotation.unref?.();
 }
 
 function stopPasswordRotation() {
-  if (!passwordRotation) return;
-  clearInterval(passwordRotation);
+  if (passwordRotation) clearInterval(passwordRotation);
   passwordRotation = undefined;
+  passwordRotatesAt = 0;
+  setQrSecondsRemaining(shouldRotatePassword() ? passwordRotationSeconds() : 0);
 }
 
 function syncPasswordRotation() {
@@ -306,7 +355,7 @@ function syncPasswordRotation() {
 }
 
 function remoteAuthHeader() {
-  return `Basic ${Buffer.from(`${remoteUsername()}:${currentTunnelPassword}`).toString("base64")}`;
+  return `Basic ${Buffer.from(`${remoteUsername()}:${currentTunnelPassword()}`).toString("base64")}`;
 }
 
 function cleanTunnelError(error: unknown) {
@@ -330,9 +379,9 @@ function emitCloudflaredLog(api: TuiPluginApi, chunk: Buffer) {
   for (const rawLine of chunk.toString().split(/\r?\n/)) {
     const line = cleanTunnelLogLine(rawLine);
     if (!line) continue;
-    if (/Registered tunnel connection/i.test(line)) emitTunnelLog(api, "cloudflared registered tunnel connection");
-    else if (/precheck complete/i.test(line)) emitTunnelLog(api, "cloudflared precheck complete");
-    else if (/Connection terminated|no more connections active|ERR\s/i.test(line)) emitTunnelLog(api, `cloudflared error: ${line.slice(0, 160)}`);
+    if (/Registered tunnel connection/i.test(line)) emitTunnelLog(api, "registered");
+    else if (/precheck complete/i.test(line)) emitTunnelLog(api, "prechecked");
+    else if (/Connection terminated|no more connections active|ERR\s/i.test(line)) emitTunnelLog(api, "failed");
   }
 }
 
@@ -380,13 +429,13 @@ function fetchResolvedTunnelHealth(url: string, address: string, headers: Record
 
 async function verifyTunnelProxy(api: TuiPluginApi, proxyPort: number) {
   const healthUrl = `http://127.0.0.1:${proxyPort}/global/health`;
-  emitTunnelLog(api, "testing local proxy without auth");
+  emitTunnelLog(api, "checking auth");
   const unauthenticated = await fetchTunnelHealth(healthUrl);
   if (unauthenticated.status !== 401) throw new Error(`local proxy expected 401, got ${unauthenticated.status}`);
-  emitTunnelLog(api, "testing local proxy with auth");
+  emitTunnelLog(api, "checking auth");
   const authenticated = await fetchTunnelHealth(healthUrl, { authorization: remoteAuthHeader() });
   if (!authenticated.ok) throw new Error(`local proxy auth failed: ${authenticated.status} ${authenticated.statusText}`);
-  emitTunnelLog(api, "local proxy auth passed");
+  emitTunnelLog(api, "auth passed");
 }
 
 async function waitForTunnelReady(api: TuiPluginApi, url: string) {
@@ -396,13 +445,13 @@ async function waitForTunnelReady(api: TuiPluginApi, url: string) {
   const deadline = Date.now() + 45000;
   let lastError = "not ready";
   let lastLoggedError = "";
-  emitTunnelLog(api, `checking public tunnel ${host}`);
+  emitTunnelLog(api, "probing");
   while (Date.now() < deadline) {
     try {
       const address = await resolveTunnelHost(hostname);
-      if (lastLoggedError !== "cloudflare DNS resolved") {
-        lastLoggedError = "cloudflare DNS resolved";
-        emitTunnelLog(api, "cloudflare DNS resolved");
+      if (lastLoggedError !== "dns resolved") {
+        lastLoggedError = "dns resolved";
+        emitTunnelLog(api, "dns resolved");
       }
       const unauthenticated = await fetchResolvedTunnelHealth(healthUrl, address, {}, 7000);
       if (unauthenticated.status !== 401) {
@@ -413,7 +462,7 @@ async function waitForTunnelReady(api: TuiPluginApi, url: string) {
         lastError = `public tunnel auth failed: ${authenticated.status} ${authenticated.statusText}`;
       }
     } catch (error) {
-      lastError = cleanTunnelError(error) === "DNS could not resolve cloudflare tunnel" ? "waiting for cloudflare DNS" : cleanTunnelError(error);
+      lastError = cleanTunnelError(error) === "DNS could not resolve cloudflare tunnel" ? "resolving" : "failed";
     }
     if (lastError !== lastLoggedError) {
       lastLoggedError = lastError;
@@ -432,6 +481,30 @@ function proxyHeaders(headers: Record<string, string | string[] | undefined>) {
   delete next["proxy-authorization"];
   delete next["proxy-connection"];
   return next;
+}
+
+function headerValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function remoteClientKey(incoming: Parameters<Parameters<typeof createServer>[0]>[0]) {
+  const forwarded = headerValue(incoming.headers["cf-connecting-ip"]) ?? headerValue(incoming.headers["x-forwarded-for"])?.split(",")[0]?.trim() ?? headerValue(incoming.headers["x-real-ip"]);
+  const address = forwarded || incoming.socket.remoteAddress || "unknown";
+  return `${address}:${headerValue(incoming.headers["user-agent"]) ?? "unknown"}`;
+}
+
+function shouldTrackRemoteClient(pathname: string) {
+  return pathname !== "/health" && pathname !== "/global/health";
+}
+
+function acceptRemoteClient(incoming: Parameters<Parameters<typeof createServer>[0]>[0], pathname: string) {
+  const maxClients = maxRemoteClients();
+  if (maxClients === 0 || !shouldTrackRemoteClient(pathname)) return true;
+  const client = remoteClientKey(incoming);
+  if (remoteClients.has(client)) return true;
+  if (remoteClients.size >= maxClients) return false;
+  remoteClients.add(client);
+  return true;
 }
 
 function randomProxyPort() {
@@ -468,8 +541,13 @@ function createProxyServer() {
       outgoing.end("Unauthorized");
       return;
     }
-    if (latestApi) markRemoteConnected(latestApi);
     const target = new URL(incoming.url ?? "/", localTunnelTarget());
+    if (!acceptRemoteClient(incoming, target.pathname)) {
+      outgoing.writeHead(429);
+      outgoing.end("Too Many Clients");
+      return;
+    }
+    if (latestApi) markRemoteConnected(latestApi);
     const proxied = request(target, { method: incoming.method, headers: { ...proxyHeaders(incoming.headers), ...authHeaders() } }, (response) => {
       outgoing.writeHead(response.statusCode ?? 502, response.statusMessage, response.headers);
       response.pipe(outgoing);
@@ -498,7 +576,7 @@ function startTunnelProxy() {
   }
   if (tunnelProxyStarting) return tunnelProxyStarting;
   ensureProxyPassword();
-  setTunnelLog("starting local proxy");
+  setTunnelLog("binding");
   requestRender();
   tunnelProxyStarting = new Promise<number>((resolve, reject) => {
     let attempts = 0;
@@ -506,7 +584,7 @@ function startTunnelProxy() {
       attempts += 1;
       const server = createProxyServer();
       const port = randomProxyPort();
-      setTunnelLog(`binding proxy on ${proxyBindHost}:${port}`);
+      setTunnelLog("binding");
       requestRender();
       let settled = false;
       const finish = (value: number) => {
@@ -515,7 +593,7 @@ function startTunnelProxy() {
         clearTimeout(timer);
         tunnelProxy = server;
         tunnelProxyStarting = undefined;
-        setTunnelLog(`proxy listening on ${lanHost()}:${value}`);
+        setTunnelLog("");
         setCurrentProxyPort(value);
         resolve(value);
         publishLanService(value);
@@ -527,14 +605,14 @@ function startTunnelProxy() {
         clearTimeout(timer);
         server.close();
         tunnelProxyStarting = undefined;
-        setTunnelLog(`proxy failed: ${cleanTunnelError(error)}`);
+        setTunnelLog("failed");
         requestRender();
         reject(error);
       };
       const timer = setTimeout(() => {
         server.close();
         if (attempts < 80) {
-          setTunnelLog(`proxy retry ${attempts}`);
+          setTunnelLog("retrying");
           requestRender();
           attempt();
           return;
@@ -547,7 +625,7 @@ function startTunnelProxy() {
           settled = true;
           clearTimeout(timer);
           server.close();
-          setTunnelLog(`proxy port busy, retry ${attempts}`);
+          setTunnelLog("retrying");
           requestRender();
           attempt();
           return;
@@ -570,11 +648,8 @@ function startTunnelProxy() {
 }
 
 async function probeTunnel(api: TuiPluginApi) {
-  setTunnelStatus("checking");
-  emitTunnelLog(api, "checking cloudflared");
-  api.renderer.requestRender();
   const capability = await cloudflareCapability();
-  emitTunnelLog(api, capability === "ready" ? "cloudflared found" : "cloudflared missing");
+  if (capability !== "ready") emitTunnelLog(api, "unavailable");
   if (tunnelMode() === "off") setTunnelStatus("off");
   emitTunnelMessage(api, `openremote tunnel capability cloudflare=${capability}`);
   api.renderer.requestRender();
@@ -598,25 +673,22 @@ async function startCloudflareTunnel(api: TuiPluginApi) {
   setTunnelUrl("");
   ensureProxyPassword();
   emitTunnelMessage(api, "openremote tunnel status starting");
-  emitTunnelLog(api, "starting local proxy");
+  emitTunnelLog(api, "binding");
   let proxyPort: number;
   try {
     proxyPort = await startTunnelProxy();
-    emitTunnelLog(api, `proxy listening on 0.0.0.0:${proxyPort}`);
     await verifyTunnelProxy(api, proxyPort);
   } catch (error) {
     tunnelStartPending = false;
     setTunnelStatus("error");
-    emitTunnelLog(api, `proxy failed: ${cleanTunnelError(error)}`);
+    emitTunnelLog(api, "failed");
     emitTunnelMessage(api, "openremote tunnel status error");
     api.renderer.requestRender();
     return;
   }
-  emitTunnelLog(api, "starting cloudflared");
-  emitTunnelLog(api, `cloudflared origin localhost:${proxyPort}`);
+  emitTunnelLog(api, "starting");
   const child = spawn("cloudflared", ["tunnel", "--loglevel", "debug", "--url", `http://localhost:${proxyPort}`], { detached: platform() !== "win32", stdio: ["ignore", "pipe", "pipe"] });
-  emitTunnelLog(api, child.pid ? `cloudflared started pid=${child.pid}` : "cloudflared started");
-  emitTunnelLog(api, "waiting for cloudflare url");
+  emitTunnelLog(api, "waiting");
   tunnelStartPending = false;
   tunnelProcess = child;
   let readinessUrl = "";
@@ -629,17 +701,17 @@ async function startCloudflareTunnel(api: TuiPluginApi) {
     if (!match || readinessUrl) return;
     readinessUrl = match[0];
     setTunnelUrl(readinessUrl);
-    emitTunnelLog(api, "cloudflare url received");
+    emitTunnelLog(api, "url received");
     void waitForTunnelReady(api, readinessUrl).then(() => {
-      if (tunnelProcess !== child || !currentTunnelPassword) return;
+      if (tunnelProcess !== child || !currentTunnelPassword()) return;
       setTunnelStatus("ready");
-      emitTunnelLog(api, "public tunnel ready");
-      emitTunnelMessage(api, `openremote tunnel status ready url=${readinessUrl} password=${currentTunnelPassword}`);
+      emitTunnelLog(api, "ready");
+      emitTunnelMessage(api, `openremote tunnel status ready url=${readinessUrl} password=${currentTunnelPassword()}`);
       api.renderer.requestRender();
     }).catch((error) => {
       if (tunnelProcess !== child) return;
       setTunnelStatus("error");
-      emitTunnelLog(api, `public tunnel failed: ${cleanTunnelError(error)}`);
+      emitTunnelLog(api, "failed");
       emitTunnelMessage(api, `openremote tunnel status error reason=${encodeURIComponent(cleanTunnelError(error))}`);
       api.renderer.requestRender();
     });
@@ -652,7 +724,7 @@ async function startCloudflareTunnel(api: TuiPluginApi) {
     tunnelStartPending = false;
     setTunnelUrl("");
     setTunnelStatus("cloudflared-missing");
-    emitTunnelLog(api, "cloudflared missing");
+    emitTunnelLog(api, "unavailable");
     emitTunnelMessage(api, "openremote tunnel status cloudflared-missing");
     api.renderer.requestRender();
   });
@@ -662,7 +734,7 @@ async function startCloudflareTunnel(api: TuiPluginApi) {
     tunnelStartPending = false;
     setTunnelUrl("");
     setTunnelStatus(tunnelMode() === "cloudflare" ? "error" : "off");
-    emitTunnelLog(api, `cloudflared exited: code=${code ?? ""} signal=${signal ?? ""}`);
+    emitTunnelLog(api, "exited");
     emitTunnelMessage(api, `openremote tunnel status ${tunnelStatus()}`);
     api.renderer.requestRender();
   });
@@ -770,6 +842,7 @@ function toggleKeepAwake(api: TuiPluginApi) {
 function markRemoteConnected(api: TuiPluginApi, device?: string) {
   const keepAwake = wantedKeepAwake("connected", true);
   const changed = !remoteConnected() || remoteStatus() !== "connected" || (device ? remoteDevice() !== device : false) || keepAwakeEnabled() !== keepAwake;
+  if (tunnelStatus() === "ready") setTunnelLog("");
   if (!changed) return;
   setRemoteConnected(true);
   setRemoteStatus("connected");
@@ -792,6 +865,7 @@ function markRemoteWaiting(api: TuiPluginApi) {
 
 function markRemoteDisconnected(api: TuiPluginApi) {
   const changed = remoteConnected() || keepAwakeEnabled();
+  remoteClients.clear();
   if (!changed) return;
   setRemoteConnected(false);
   setRemoteStatus("waiting");
@@ -972,9 +1046,6 @@ function installCommands(api: TuiPluginApi) {
 }
 
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
-  const proxyPort = currentProxyPort ?? tunnelProxyPort() ?? proxyLogPort();
-  const lines = proxyPort ? qrLines(remoteUrl(props.sessionId ?? sessionIdFromRoute(props.api), proxyPort)) : [tunnelLog() || "starting local proxy"];
-  const proxyCredentials = currentTunnelPassword ? `${remoteUsername()}:${currentTunnelPassword}` : "";
   return (
     <box width="100%" flexDirection="column" marginTop={1}>
       <box width="100%" flexDirection="row" justifyContent="space-between">
@@ -987,26 +1058,39 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
         <box width="100%" flexDirection="column" marginTop={1}>
           <box width="100%" flexDirection="row" justifyContent="space-between">
             <text fg={props.theme.textMuted}>scan with openremote</text>
+            <text fg={props.theme.textMuted}>{shouldRotatePassword() ? `(${qrSecondsRemaining()}s)` : ""}</text>
           </box>
-          <box width="100%" flexDirection="column" marginTop={1}>
-            {lines.map((line, index) => (
-              <text key={index} fg={props.theme.text}>{line}</text>
-            ))}
-          </box>
+          {(() => {
+            const proxyPort = currentProxyPort ?? tunnelProxyPort() ?? proxyLogPort();
+            qrVersion();
+            currentTunnelPassword();
+            const qrUrl = proxyPort ? remoteUrl(props.sessionId ?? sessionIdFromRoute(props.api), proxyPort) : "";
+            const lines = qrUrl ? qrLines(qrUrl) : [tunnelLog() || "starting local proxy"];
+            const qrKey = qrUrl || tunnelLog() || "starting local proxy";
+            return (
+              <box key={qrKey} width="100%" flexDirection="column" marginTop={1}>
+                {lines.map((line, index) => (
+                  <text key={`${qrKey}-${index}-${line}`} fg={props.theme.text}>{line}</text>
+                ))}
+              </box>
+            );
+          })()}
         </box>
       )}
       {remoteConnected() && (
         <box width="100%" flexDirection="column" marginTop={1}>
-          <text fg={props.theme.textMuted}>{remoteDevice()} connected</text>
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>local access</text>
+            <text fg={props.theme.accent}>{remoteDevice()} connected</text>
+          </box>
           <box width="100%" flexDirection="row" justifyContent="space-between" onClick={() => toggleKeepAwake(props.api)}>
             <text fg={props.theme.text}>keep awake</text>
             <text fg={keepAwakeEnabled() ? props.theme.accent : props.theme.textMuted}>{keepAwakeMode()}</text>
           </box>
           <box width="100%" flexDirection="row" justifyContent="space-between">
             <text fg={props.theme.text}>remote access</text>
-            <text fg={tunnelStatus() === "ready" ? props.theme.accent : props.theme.textMuted}>{tunnelStatusLabel()}</text>
+            <text fg={props.theme.textMuted}>{tunnelLog() || (tunnelStatus() === "ready" ? "" : tunnelStatusLabel())}</text>
           </box>
-          {tunnelLog() ? <text fg={props.theme.textMuted}>{tunnelLog()}</text> : null}
         </box>
       )}
     </box>
@@ -1014,6 +1098,7 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
 };
 
 function tunnelStatusLabel() {
+  if (tunnelStatus() === "cloudflared-missing") return "not available";
   if (tunnelStatus() === "ready") return tunnelMode();
   return tunnelStatus();
 }
@@ -1042,7 +1127,7 @@ export const tui: TuiPlugin = async (api) => {
   installCommands(api);
   installSlots(api);
   void startTunnelProxy().then(() => api.renderer.requestRender()).catch((error) => {
-    setTunnelLog(`proxy failed: ${cleanTunnelError(error)}`);
+    setTunnelLog("failed");
     api.renderer.requestRender();
   });
 };

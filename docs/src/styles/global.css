@@ -949,6 +949,40 @@ section[id] {
   color: var(--accent);
 }
 
+.config-table-wrap {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  background: rgba(12, 14, 15, 0.46);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.config-table th,
+.config-table td {
+  border-bottom: 1px solid var(--soft-line);
+  padding: 0.8rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.config-table th {
+  color: var(--ink);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.config-table tr:last-child td {
+  border-bottom: 0;
+}
+
 .password-note-panel {
   display: none;
   margin-top: 1.4rem;

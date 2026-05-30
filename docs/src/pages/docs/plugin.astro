@@ -123,6 +123,44 @@ const tuiConfig = `{
             <p>Restart OpenCode, open the OpenRemote sidebar QR code, then scan it from the app.</p>
             <p><a class="inline-link" href="/docs/getting-started">Open the getting started guide</a></p>
           </section>
+
+          <section class="guide-section">
+            <h2>Configuration</h2>
+            <p>The TUI QR code includes separate OpenRemote proxy credentials. Leave OpenCode's built-in <code>OPENCODE_SERVER_USERNAME</code> and <code>OPENCODE_SERVER_PASSWORD</code> at their defaults unless you need them for OpenCode itself.</p>
+            <div class="config-table-wrap">
+              <table class="config-table">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_USERNAME</code></td>
+                    <td><code>opencode</code></td>
+                    <td>QR/proxy username used by OpenRemote.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_SECRET</code></td>
+                    <td>generated</td>
+                    <td>Fixed QR/proxy secret. When set, rotation is disabled.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_SECRET_ROTATION_SECONDS</code></td>
+                    <td><code>30</code></td>
+                    <td>Rotation interval from <code>0</code> to <code>3600</code> seconds. <code>0</code> means generate once on start and never rotate. Ignored when <code>OPENCODE_REMOTE_SECRET</code> is set.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENTS</code></td>
+                    <td><code>1</code></td>
+                    <td>Maximum authenticated OpenRemote clients allowed through the proxy. <code>0</code> allows any number.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
           <footer class="footer docs-footer">
             <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
             <span><a class="inline-link" href="/privacy">Privacy</a></span>
