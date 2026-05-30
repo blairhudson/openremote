@@ -73,7 +73,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Setup Bun
@@ -258,7 +258,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Setup Bun
@@ -274,12 +274,14 @@ jobs:
           NPM_VERSION: ${{ needs.prepare_release.outputs.npm_version }}
         working-directory: packages/opencode-plugin
         run: |
+          npm install -g npm@latest
+
           if npm view "opencode-openremote@${NPM_VERSION}" version >/dev/null 2>&1; then
             echo "opencode-openremote@${NPM_VERSION} already published; skipping"
             exit 0
           fi
 
-          npm publish --access public --provenance
+          npm publish --access public
 
   mobile_release:
     name: EAS mobile release
