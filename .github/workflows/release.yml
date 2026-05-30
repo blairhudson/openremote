@@ -103,6 +103,8 @@ jobs:
           REUSE_CURRENT_APP_VERSION: ${{ inputs.reuse_current_app_version }}
           PUBLISH_NPM: ${{ inputs.publish_npm }}
           NPM_VERSION_BUMP: ${{ inputs.npm_version_bump }}
+          ANDROID_PLAY: ${{ inputs.android_play }}
+          IOS_TESTFLIGHT: ${{ inputs.ios_testflight }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const app = require("./app.json");
@@ -146,9 +148,10 @@ jobs:
           const reuse = process.env.REUSE_CURRENT_APP_VERSION === "true";
           const publishNpm = process.env.PUBLISH_NPM === "true";
           const npmBump = publishNpm ? process.env.NPM_VERSION_BUMP : "none";
+          const releaseMobile = process.env.ANDROID_PLAY === "true" || process.env.IOS_TESTFLIGHT === "true";
 
-          if (reuse && npmBump !== "none") {
-            throw new Error("Cannot bump npm version while reusing an existing app tag");
+          if (releaseMobile && reuse && npmBump !== "none") {
+            throw new Error("Cannot bump npm version while reusing an existing app tag for mobile release");
           }
 
           const appVersion = reuse ? currentAppVersion : bumpVersion(currentAppVersion, process.env.VERSION_BUMP, "app.json expo.version");
@@ -169,7 +172,7 @@ jobs:
           fi
 
       - name: Reuse existing tag
-        if: ${{ inputs.reuse_current_app_version }}
+        if: ${{ inputs.reuse_current_app_version && (inputs.android_play || inputs.ios_testflight) }}
         run: |
           if ! git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.release_tag }}" | grep -q .; then
             echo "Tag does not exist: ${{ steps.version.outputs.release_tag }}"
@@ -215,6 +218,15 @@ jobs:
           git tag "${{ steps.version.outputs.release_tag }}"
           git push origin HEAD:main
           git push origin "${{ steps.version.outputs.release_tag }}"
+
+      - name: Commit npm package release
+        if: ${{ inputs.reuse_current_app_version && !inputs.android_play && !inputs.ios_testflight && inputs.publish_npm && inputs.npm_version_bump != 'none' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/opencode-plugin/package.json
+          git commit -m "Release opencode-openremote ${{ steps.version.outputs.npm_version }}"
+          git push origin HEAD:main
 
       - name: Resolve release outputs
         id: release
