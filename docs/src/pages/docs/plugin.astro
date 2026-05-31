@@ -42,9 +42,8 @@ const tuiConfig = `{
     <title>{pageTitle}</title>
   </head>
   <body>
-    <main class="page-shell docs-page-shell">
-      <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
-      <nav class="topbar" aria-label="Primary navigation">
+    <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+    <nav class="topbar" aria-label="Primary navigation">
         <div class="topbar-inner">
           <div class="topbar-brand-row">
             <a class="brand" href="/" aria-label="OpenRemote home">
@@ -67,9 +66,10 @@ const tuiConfig = `{
             </a>
           </div>
         </div>
-      </nav>
-      <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+    </nav>
+    <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
 
+    <main class="page-shell docs-page-shell">
       <div class="docs-layout">
         <DocsSidebar />
 

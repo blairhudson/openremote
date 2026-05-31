@@ -106,24 +106,25 @@ const structuredData = {
     <title>{pageTitle}</title>
   </head>
   <body>
-    <main class="page-shell">
-      <nav class="topbar" aria-label="Primary navigation">
-        <div class="topbar-inner">
-          <a class="brand" href="/" aria-label="OpenRemote home">
-            <img src="/openremote-wordmark.svg" alt="openremote" />
+    <nav class="topbar" aria-label="Primary navigation">
+      <div class="topbar-inner">
+        <a class="brand" href="/" aria-label="OpenRemote home">
+          <img src="/openremote-wordmark.svg" alt="openremote" />
+        </a>
+        <div class="nav-links">
+          <a href="/docs">docs</a>
+          <a href="/news">news</a>
+          <a href="/roadmap">roadmap</a>
+          <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+            <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+            </svg>
           </a>
-          <div class="nav-links">
-            <a href="/docs">docs</a>
-            <a href="/news">news</a>
-            <a href="/roadmap">roadmap</a>
-            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
-              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-              </svg>
-            </a>
-          </div>
         </div>
-      </nav>
+      </div>
+    </nav>
+
+    <main class="page-shell">
 
       <section id="top" class="hero">
         <div class="hero-copy">
@@ -195,7 +196,7 @@ const structuredData = {
           </div>
           <article class="platform-panel platform-panel-ios">
             <h3>iOS</h3>
-            <p>Run OpenRemote on iOS from source with Expo development builds.</p>
+            <p><label class="inline-link" for="beta-access-toggle" role="button" tabindex="0">Join the private beta</label> or run OpenRemote on iOS from source with Expo development builds.</p>
             <a class="app-store-badge" href="/docs/installation" aria-label="Open installation guide">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M16.7 12.7c0-2.1 1.7-3.1 1.8-3.2-1-1.4-2.5-1.6-3-1.6-1.3-.1-2.5.8-3.1.8-.6 0-1.6-.8-2.7-.7-1.4 0-2.7.8-3.4 2.1-1.5 2.6-.4 6.4 1.1 8.5.7 1 1.5 2.2 2.6 2.1 1 0 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.7 1.1 0 1.8-1 2.5-2 .8-1.2 1.1-2.3 1.1-2.4-.1 0-2.3-.9-2.3-3.6ZM14.6 6.5c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.6.9.1 1.9-.5 2.5-1.2Z" />
@@ -208,7 +209,7 @@ const structuredData = {
           </article>
           <article class="platform-panel platform-panel-android">
             <h3>Android</h3>
-            <p>Run OpenRemote on Android from source with Expo development builds.</p>
+            <p><label class="inline-link" for="beta-access-toggle" role="button" tabindex="0">Join the private beta</label>, install the <a class="inline-link" href="/docs/installation#apk-android">Android APK</a>, or run OpenRemote on Android from source with Expo development builds.</p>
             <a class="play-store-badge" href="/docs/installation#apk-android" aria-label="Open Android APK installation guide">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="#00f076" d="M3.8 2.4c-.3.3-.5.8-.5 1.4v16.4c0 .6.2 1.1.6 1.4L13 12 3.8 2.4Z" />
@@ -235,8 +236,6 @@ const structuredData = {
               <span>or</span>
               <pre><code>opencode --hostname 0.0.0.0</code></pre>
             </div>
-            <h3 class="doc-subheading">Use a password before starting OpenCode on shared or public Wi-Fi:</h3>
-            <pre><code>OPENCODE_SERVER_PASSWORD=changeme123 opencode --mdns</code></pre>
           </article>
         </div>
       </section>
@@ -262,7 +261,7 @@ const structuredData = {
               <path d="M18 14h1v5h-5v-2" />
               <path d="M14 19h1" />
             </svg>
-            QR Code Connect
+            QR Quick Connect
           </article>
           <article class="plugin-feature-card plugin-feature-pink">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -272,12 +271,31 @@ const structuredData = {
             </svg>
             Keep Awake
           </article>
+          <article class="plugin-feature-card plugin-feature-cyan">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12h16" />
+              <path d="M7 9l-3 3 3 3" />
+              <path d="M17 9l3 3-3 3" />
+              <path d="M8 6h8" />
+              <path d="M8 18h8" />
+            </svg>
+            Remote Access Tunnels
+          </article>
+          <article class="plugin-feature-card plugin-feature-accent">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a9 9 0 1 0 9 9" />
+              <path d="M21 3v6h-6" />
+              <path d="M21 9a9 9 0 0 0-9-6" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            Rolling One-Time Passwords
+          </article>
         </div>
         <div class="docs-grid">
           <article class="doc-card">
             <h3>Run the setup wizard</h3>
             <pre><code>npx opencode-openremote@latest</code></pre>
-            <p>Easily add OpenRemote to your OpenCode config, enable sidebar and keep-awake, and optionally star the repo.</p>
+            <p>Easily add OpenRemote to your OpenCode config and optionally star the repo.</p>
           </article>
         </div>
       </section>
@@ -315,14 +333,9 @@ const structuredData = {
       <div class="modal-card">
         <label class="modal-close" for="beta-access-toggle" aria-label="Close beta access modal" role="button" tabindex="0">×</label>
         <p class="eyebrow">private beta</p>
-        <h2 id="beta-access-title">Request private beta access.</h2>
-        <p>Open signups are coming soon.</p>
+        <h2 id="beta-access-title">Open signups are coming soon.</h2>
+        <p>Until then, message <a class="inline-link" href="https://www.linkedin.com/in/blairhudson/" target="_blank" rel="noreferrer"><svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M14.82 0H1.18C.53 0 0 .51 0 1.14v13.72C0 15.49.53 16 1.18 16h13.64c.65 0 1.18-.51 1.18-1.14V1.14C16 .51 15.47 0 14.82 0ZM4.75 13.64H2.37V6h2.38v7.64ZM3.56 4.96a1.38 1.38 0 1 1 0-2.76 1.38 1.38 0 0 1 0 2.76Zm10.08 8.68h-2.37V9.93c0-.89-.02-2.03-1.24-2.03-1.24 0-1.43.97-1.43 1.96v3.78H6.23V6H8.5v1.04h.03c.32-.6 1.09-1.24 2.24-1.24 2.4 0 2.84 1.58 2.84 3.63v4.21h.03Z" /></svg>Blair Hudson</a> or comment <code class="inline-code">openremote</code> on <a class="inline-link" href="https://www.linkedin.com/feed/update/urn:li:activity:7461903327052607488/" target="_blank" rel="noreferrer">this post</a> and I will reach out to you privately on LinkedIn for your App Store or Google Play email address to add you to the private testers group.</p>
         <p>Android users can install the <a class="inline-link" href="/docs/installation#apk-android">Android APK</a> now. You can also self-host with Expo on <a class="inline-link" href="/docs/self-hosting/ios">iOS</a> and <a class="inline-link" href="/docs/self-hosting/android">Android</a>.</p>
-        <p>Message <a class="inline-link" href="https://www.linkedin.com/in/blairhudson/" target="_blank" rel="noreferrer">
-          <svg class="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path fill="currentColor" d="M14.82 0H1.18C.53 0 0 .51 0 1.14v13.72C0 15.49.53 16 1.18 16h13.64c.65 0 1.18-.51 1.18-1.14V1.14C16 .51 15.47 0 14.82 0ZM4.75 13.64H2.37V6h2.38v7.64ZM3.56 4.96a1.38 1.38 0 1 1 0-2.76 1.38 1.38 0 0 1 0 2.76Zm10.08 8.68h-2.37V9.93c0-.89-.02-2.03-1.24-2.03-1.24 0-1.43.97-1.43 1.96v3.78H6.23V6H8.5v1.04h.03c.32-.6 1.09-1.24 2.24-1.24 2.4 0 2.84 1.58 2.84 3.63v4.21h.03Z" />
-          </svg>
-          Blair Hudson</a> or comment on <a class="inline-link" href="https://www.linkedin.com/feed/update/urn:li:activity:7461903327052607488/" target="_blank" rel="noreferrer">this post</a>.</p>
       </div>
     </div>
   </body>
