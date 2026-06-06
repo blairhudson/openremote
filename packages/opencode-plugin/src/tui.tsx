@@ -27,6 +27,14 @@ function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
 }
 
+function remoteFlag(name: string) {
+  return (process.env[name] ?? "").toLowerCase() === "true";
+}
+
+function allowNewSessions() {
+  return remoteFlag("OPENCODE_REMOTE_ALLOW_NEW_SESSIONS");
+}
+
 function passwordRotationSeconds() {
   const value = Number(process.env.OPENCODE_REMOTE_SECRET_ROTATION_SECONDS ?? defaultPasswordRotationSeconds);
   if (!Number.isFinite(value)) return defaultPasswordRotationSeconds;
@@ -245,6 +253,7 @@ function pluginStatus() {
   return {
     instanceId: pluginInstanceId,
     activeSessionIds: activeSessionIds(),
+    allowNewSessions: allowNewSessions(),
     connected: remoteConnected() && remoteStatus() === "connected",
     lastHeartbeatAt,
   };

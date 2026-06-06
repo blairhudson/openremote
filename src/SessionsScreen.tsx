@@ -9,13 +9,14 @@ type Props = {
   sessions: Session[];
   serverUrl: string;
   busy: boolean;
+  allowNewSessions: boolean;
   onCreate: () => void;
   onOpen: (session: Session) => void;
   onDisconnect: () => void;
   onSettings: () => void;
 };
 
-export function SessionsScreen({ sessions, serverUrl, busy, onCreate, onOpen, onDisconnect, onSettings }: Props) {
+export function SessionsScreen({ sessions, serverUrl, busy, allowNewSessions, onCreate, onOpen, onDisconnect, onSettings }: Props) {
   return (
     <View style={styles.wrap}>
       <StatusLine
@@ -30,7 +31,7 @@ export function SessionsScreen({ sessions, serverUrl, busy, onCreate, onOpen, on
       <RailPanel tone="cyan">
         <View style={styles.header}>
           <TerminalText bold size={18}>Sessions</TerminalText>
-          <CommandButton label="new" tone="green" onPress={onCreate} />
+          {allowNewSessions ? <CommandButton label="new" tone="green" onPress={onCreate} /> : null}
         </View>
       </RailPanel>
       <FlatList
@@ -38,7 +39,7 @@ export function SessionsScreen({ sessions, serverUrl, busy, onCreate, onOpen, on
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => <SessionRow index={index} session={item} onPress={() => onOpen(item)} />}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<TerminalText tone="muted">No sessions. Tap `new`.</TerminalText>}
+        ListEmptyComponent={<TerminalText tone="muted">{allowNewSessions ? "No sessions. Tap `new`." : "No active desktop session."}</TerminalText>}
         contentContainerStyle={styles.list}
       />
     </View>

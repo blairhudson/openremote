@@ -37,7 +37,7 @@ type TuiToastEvent = { id?: string; type: "tui.toast.show"; properties?: { messa
 export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent | TuiToastEvent) & { serverDirectory?: string };
 
 export type Health = { healthy: boolean; version: string };
-export type OpenRemoteStatus = { instanceId: string; activeSessionIds: string[]; connected: boolean; lastHeartbeatAt: number };
+export type OpenRemoteStatus = { instanceId: string; activeSessionIds: string[]; allowNewSessions?: boolean; connected: boolean; lastHeartbeatAt: number };
 export type MessageBundle = {
   info?: Message;
   parts?: Part[];

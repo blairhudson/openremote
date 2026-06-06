@@ -18,6 +18,7 @@ type Props = {
   modelLimits: ModelLimits;
   serverDirectory?: string;
   status?: SessionStatus;
+  allowNewSessions: boolean;
   onBack: () => void;
   onSent: () => void;
   onForked: (session: Session) => void;
@@ -70,7 +71,7 @@ const modalCommandNames = new Set<string>(["agents", "help", "models", "themes",
 const themeNames = ["system", "tokyonight", "catppuccin", "gruvbox", "kanagawa", "nord", "rose-pine", "solarized", "dracula"];
 const variantNames = ["default", "none", "low", "medium", "high", "xhigh"];
 
-export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
+export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, allowNewSessions, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
   const [prompt, setPrompt] = useState("");
   const [promptInputKey, setPromptInputKey] = useState(0);
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
@@ -108,9 +109,9 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     return [
       ...builtinCommands.filter((command) => modalCommandNames.has(command.name)).map((command) => ({ kind: "builtin" as const, ...command })),
       ...commands.filter((command) => !modalCommandNames.has(command.name)).map((command) => ({ kind: "server" as const, name: command.name, description: command.description, command })),
-      ...builtinCommands.filter((command) => !modalCommandNames.has(command.name) && !serverNames.has(command.name)).map((command) => ({ kind: "builtin" as const, ...command })),
+      ...builtinCommands.filter((command) => command.name !== "new" || allowNewSessions).filter((command) => !modalCommandNames.has(command.name) && !serverNames.has(command.name)).map((command) => ({ kind: "builtin" as const, ...command })),
     ].sort((left, right) => left.name.localeCompare(right.name));
-  }, [commands]);
+  }, [allowNewSessions, commands]);
   const filteredCommands = useMemo(() => {
     if (slashQuery === null) return [];
     return slashCommands.filter((command) => command.name.toLowerCase().startsWith(slashQuery));
@@ -236,6 +237,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     if (command.name === "compact") await client.executeTuiCommand("session.compact");
     if (command.name === "undo") await client.executeTuiCommand("session.undo");
     if (command.name === "new") {
+      if (!allowNewSessions) return;
       await onNewSession();
       return;
     }

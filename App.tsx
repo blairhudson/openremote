@@ -58,6 +58,7 @@ export default function App() {
   const activeRef = useRef<Session | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const client = useMemo(() => (settings ? new OpencodeClient(settings) : null), [settings]);
+  const allowNewSessions = openRemoteStatus?.allowNewSessions === true;
 
   useEffect(() => {
     sessionStatusRef.current = sessionStatus;
@@ -525,7 +526,7 @@ export default function App() {
   }
 
   async function createSession() {
-    if (!client) return;
+    if (!client || !allowNewSessions) return;
     const session = await client.createSession();
     if (!session?.id) throw new Error("opencode did not return a session id");
     setActive(session);
@@ -537,7 +538,7 @@ export default function App() {
   }
 
   async function createAndOpenSession() {
-    if (!client) return;
+    if (!client || !allowNewSessions) return;
     return createSession();
   }
 
@@ -743,11 +744,11 @@ export default function App() {
           {!client ? (
             <ConnectScreen initial={settings} localRecent={localSettings} tunnelRecent={tunnelSettings} busy={busy} error={error} onConnect={connect} />
           ) : active ? (
-            <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
+            <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} allowNewSessions={allowNewSessions} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
           ) : screen === "settings" ? (
             <SettingsScreen keepAwakeMode={keepAwakeMode} tunnelMode={tunnelMode} tunnelCapability={tunnelCapability} tunnelUrl={tunnelUrl} tunnelError={tunnelError} tunnelLog={tunnelLog} remoteAccessInUse={isTunnelConnection(settings)} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} onChangeTunnelMode={(mode) => void changeTunnelMode(mode)} />
           ) : (
-            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
+            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} allowNewSessions={allowNewSessions} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
           )}
         </SafeAreaView>
       </SafeAreaProvider>
