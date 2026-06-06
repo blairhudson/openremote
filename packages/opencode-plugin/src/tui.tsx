@@ -494,7 +494,7 @@ function remoteClientKey(incoming: Parameters<Parameters<typeof createServer>[0]
 }
 
 function shouldTrackRemoteClient(pathname: string) {
-  return pathname !== "/health" && pathname !== "/global/health";
+  return pathname !== "/health" && pathname !== "/global/health" && pathname !== "/global/event";
 }
 
 function acceptRemoteClient(incoming: Parameters<Parameters<typeof createServer>[0]>[0], pathname: string) {
