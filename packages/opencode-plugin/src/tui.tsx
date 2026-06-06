@@ -20,6 +20,8 @@ const password = () => process.env.OPENCODE_SERVER_PASSWORD ?? "";
 const remoteUsername = () => process.env.OPENCODE_REMOTE_USERNAME ?? "opencode";
 const proxyBindHost = "0.0.0.0";
 const defaultPasswordRotationSeconds = 30;
+const heartbeatTimeoutMs = 30000;
+const pluginInstanceId = `or_${randomBytes(8).toString("hex")}`;
 
 function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
@@ -130,7 +132,10 @@ let mdnsName = "";
 let tunnelStartPending = false;
 let currentProxyPort: number | undefined;
 let passwordRotation: ReturnType<typeof setInterval> | undefined;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let passwordRotatesAt = 0;
+let lastHeartbeatAt = 0;
+let visibleSessionId: string | undefined;
 const remoteClients = new Set<string>();
 let cleanupInstalled = false;
 let cachedQrUrl = "";
@@ -223,12 +228,61 @@ function stopTunnel() {
 
 function stopTunnelProxy() {
   stopPasswordRotation();
+  stopHeartbeatMonitor();
   remoteClients.clear();
   unpublishLanService();
   tunnelProxy?.close();
   tunnelProxy = undefined;
   tunnelProxyStarting = undefined;
   setCurrentProxyPort(undefined);
+}
+
+function activeSessionIds() {
+  return visibleSessionId ? [visibleSessionId] : [];
+}
+
+function pluginStatus() {
+  return {
+    instanceId: pluginInstanceId,
+    activeSessionIds: activeSessionIds(),
+    connected: remoteConnected() && remoteStatus() === "connected",
+    lastHeartbeatAt,
+  };
+}
+
+function sendJson(outgoing: Parameters<Parameters<typeof createServer>[0]>[1], status: number, body: unknown) {
+  outgoing.writeHead(status, { "content-type": "application/json" });
+  outgoing.end(JSON.stringify(body));
+}
+
+function handlePluginEndpoint(pathname: string, method: string | undefined, outgoing: Parameters<Parameters<typeof createServer>[0]>[1]) {
+  if (pathname === "/openremote/status" && method === "GET") {
+    sendJson(outgoing, 200, pluginStatus());
+    return true;
+  }
+  if (pathname === "/openremote/heartbeat" && method === "POST") {
+    lastHeartbeatAt = Date.now();
+    if (latestApi) markRemoteConnected(latestApi);
+    sendJson(outgoing, 200, pluginStatus());
+    return true;
+  }
+  return false;
+}
+
+function startHeartbeatMonitor() {
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => {
+    if (!lastHeartbeatAt || Date.now() - lastHeartbeatAt <= heartbeatTimeoutMs) return;
+    lastHeartbeatAt = 0;
+    if (latestApi) markRemoteDisconnected(latestApi);
+  }, 1000);
+  heartbeatTimer.unref?.();
+}
+
+function stopHeartbeatMonitor() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = undefined;
+  lastHeartbeatAt = 0;
 }
 
 function emitTunnelMessage(_api: TuiPluginApi, message: string) {
@@ -542,6 +596,7 @@ function createProxyServer() {
       return;
     }
     const target = new URL(incoming.url ?? "/", localTunnelTarget());
+    if (handlePluginEndpoint(target.pathname, incoming.method, outgoing)) return;
     if (!acceptRemoteClient(incoming, target.pathname)) {
       outgoing.writeHead(429);
       outgoing.end("Too Many Clients");
@@ -570,6 +625,7 @@ function startTunnelProxy() {
       setCurrentProxyPort(address.port);
       publishLanService(address.port);
       syncPasswordRotation();
+      startHeartbeatMonitor();
       return Promise.resolve(address.port);
     }
     return Promise.reject(new Error("proxy address unavailable"));
@@ -598,6 +654,7 @@ function startTunnelProxy() {
         resolve(value);
         publishLanService(value);
         syncPasswordRotation();
+        startHeartbeatMonitor();
       };
       const fail = (error: unknown) => {
         if (settled) return;
@@ -1046,6 +1103,7 @@ function installCommands(api: TuiPluginApi) {
 }
 
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
+  visibleSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
   return (
     <box width="100%" flexDirection="column" marginTop={1}>
       <box width="100%" flexDirection="row" justifyContent="space-between">

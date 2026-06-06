@@ -6,7 +6,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
-import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
+import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type OpenRemoteStatus, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
 import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, loadKeepAwakeMode, loadLocalConnection, loadRemotePassword, loadTunnelConnection, loadTunnelMode, saveActiveSession, saveConnection, saveKeepAwakeMode, saveLocalConnection, saveRemotePassword, saveTunnelConnection, saveTunnelMode, type ConnectionSettings, type KeepAwakeMode, type TunnelMode } from "./src/storage";
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
@@ -35,6 +35,7 @@ export default function App() {
   const [tunnelError, setTunnelError] = useState<string | null>(null);
   const [tunnelLog, setTunnelLog] = useState<string | null>(null);
   const [remotePassword, setRemotePassword] = useState("");
+  const [openRemoteStatus, setOpenRemoteStatus] = useState<OpenRemoteStatus | null>(null);
   const pendingTunnelMode = useRef<TunnelMode>("off");
   const tunnelProbeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const tunnelStartRequested = useRef(false);
@@ -48,8 +49,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [eventSubscriptionKey, setEventSubscriptionKey] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectionGeneration = useRef(0);
   const livePartsRef = useRef<Record<string, Record<string, Part>>>({});
   const sessionStatusRef = useRef<Record<string, SessionStatus>>({});
+  const openRemoteStatusRef = useRef<OpenRemoteStatus | null>(null);
   const activeSessionIdRef = useRef<string | undefined>(undefined);
   const activeRef = useRef<Session | null>(null);
   const appStateRef = useRef(AppState.currentState);
@@ -58,6 +62,10 @@ export default function App() {
   useEffect(() => {
     sessionStatusRef.current = sessionStatus;
   }, [sessionStatus]);
+
+  useEffect(() => {
+    openRemoteStatusRef.current = openRemoteStatus;
+  }, [openRemoteStatus]);
 
   useEffect(() => {
     activeSessionIdRef.current = active?.id;
@@ -92,12 +100,14 @@ export default function App() {
 
   useEffect(() => () => {
     if (tunnelProbeTimer.current) clearTimeout(tunnelProbeTimer.current);
+    stopHeartbeat();
   }, []);
 
   useEffect(() => {
     if (!client) return;
+    const generation = connectionGeneration.current;
     const stop = client.events(
-      (event) => queueStreamEvent(event, client, activeSessionIdRef.current),
+      (event) => queueStreamEvent(event, client, activeSessionIdRef.current, generation),
       () => undefined,
     );
     return () => {
@@ -128,7 +138,7 @@ export default function App() {
       if (!client) return;
       if (state === "active") {
         setEventSubscriptionKey((current) => current + 1);
-        void refresh(client, activeSessionIdRef.current, false, true);
+        void refresh(client, activeSessionIdRef.current, false, true, connectionGeneration.current);
         if (activeRef.current) announceSession(client, activeRef.current, keepAwakeMode);
         else announceWaiting(client, true, keepAwakeMode);
         return;
@@ -138,17 +148,88 @@ export default function App() {
     return () => subscription.remove();
   }, [client, keepAwakeMode]);
 
-  function scheduleRefresh(target: OpencodeClient, sessionId?: string) {
+  function isCurrentGeneration(generation: number) {
+    return generation === connectionGeneration.current;
+  }
+
+  function filterActiveSessions(nextSessions: Session[], status = openRemoteStatusRef.current) {
+    if (!status) return nextSessions;
+    const activeIds = new Set(status.activeSessionIds);
+    return nextSessions.filter((session) => activeIds.has(session.id));
+  }
+
+  function sameActiveSessionIds(left: OpenRemoteStatus | null, right: OpenRemoteStatus | null) {
+    if (!left || !right) return left === right;
+    if (left.instanceId !== right.instanceId) return false;
+    if (left.activeSessionIds.length !== right.activeSessionIds.length) return false;
+    return left.activeSessionIds.every((id, index) => id === right.activeSessionIds[index]);
+  }
+
+  function updateOpenRemoteStatus(status: OpenRemoteStatus | null, target: OpencodeClient, generation: number) {
+    const previous = openRemoteStatusRef.current;
+    openRemoteStatusRef.current = status;
+    setOpenRemoteStatus(status);
+    if (sameActiveSessionIds(previous, status)) return;
+    setSessions((current) => filterActiveSessions(current, status));
+    if (activeRef.current && status && !status.activeSessionIds.includes(activeRef.current.id)) {
+      activeRef.current = null;
+      setActive(null);
+      setMessages([]);
+      setLivePartsByMessage({});
+      livePartsRef.current = {};
+    }
+    scheduleRefresh(target, activeSessionIdRef.current, generation);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+    heartbeatTimer.current = null;
+  }
+
+  function startHeartbeat(target: OpencodeClient, generation: number) {
+    stopHeartbeat();
+    const beat = async () => {
+      if (!isCurrentGeneration(generation)) return;
+      const status = await target.heartbeat();
+      if (!isCurrentGeneration(generation)) return;
+      updateOpenRemoteStatus(status, target, generation);
+    };
+    void beat();
+    heartbeatTimer.current = setInterval(() => void beat(), 10000);
+  }
+
+  function clearConnectionState() {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = null;
+    setSessions([]);
+    setCommands([]);
+    setModelLimits({});
+    setSessionStatus({});
+    setPermissions([]);
+    setQuestions([]);
+    openRemoteStatusRef.current = null;
+    setOpenRemoteStatus(null);
+    setServerDirectory(undefined);
+    setMessages([]);
+    setLivePartsByMessage({});
+    livePartsRef.current = {};
+    activeRef.current = null;
+    activeSessionIdRef.current = undefined;
+    setActive(null);
+  }
+
+  function scheduleRefresh(target: OpencodeClient, sessionId?: string, generation = connectionGeneration.current) {
     if (sessionId && sessionStatusRef.current[sessionId]?.type === "busy") return;
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
-      void refresh(target, sessionId, false);
+      if (isCurrentGeneration(generation)) void refresh(target, sessionId, false, false, generation);
     }, 120);
   }
 
-  function queueStreamEvent(event: StreamEvent, target: OpencodeClient, sessionId?: string) {
+  function queueStreamEvent(event: StreamEvent, target: OpencodeClient, sessionId?: string, generation = connectionGeneration.current) {
+    if (!isCurrentGeneration(generation)) return;
     handleTunnelEvent(event, target);
-    applyStreamEvents([event], target, sessionId);
+    applyStreamEvents([event], target, sessionId, generation);
   }
 
   function handleTunnelEvent(event: StreamEvent, target: OpencodeClient) {
@@ -204,8 +285,9 @@ export default function App() {
     }
   }
 
-  function applyStreamEvents(events: StreamEvent[], target: OpencodeClient, sessionId?: string) {
+  function applyStreamEvents(events: StreamEvent[], target: OpencodeClient, sessionId?: string, generation = connectionGeneration.current) {
     if (!events.length) return;
+    if (!isCurrentGeneration(generation)) return;
     const directory = [...events].reverse().find((event) => event.serverDirectory)?.serverDirectory;
     if (directory) setServerDirectory(directory);
 
@@ -216,7 +298,7 @@ export default function App() {
     if (sessionId) patchMessages(events, sessionId);
 
     if (events.some((event) => event.type === "server.connected" || event.type === "session.compacted" || event.type === "session.error")) {
-      scheduleRefresh(target, sessionId);
+      scheduleRefresh(target, sessionId, generation);
     }
   }
 
@@ -251,7 +333,7 @@ export default function App() {
           next = next.filter((item) => item.id !== session.id);
         }
       }
-      return next;
+      return filterActiveSessions(next);
     });
 
     setActive((current) => {
@@ -355,6 +437,7 @@ export default function App() {
     try {
       const nextClient = new OpencodeClient(next);
       await nextClient.health();
+      const status = await nextClient.openRemoteStatus();
       await saveConnection(next);
       if (!skipLocalSave && !isTunnelConnection(next)) {
         await saveLocalConnection(next);
@@ -366,12 +449,24 @@ export default function App() {
         setTunnelSettings(next);
         tunnelSettingsRef.current = next;
       }
+      connectionGeneration.current += 1;
+      const generation = connectionGeneration.current;
+      stopHeartbeat();
+      clearConnectionState();
+      openRemoteStatusRef.current = status;
+      setOpenRemoteStatus(status);
       setSettings(next);
+      if (status) startHeartbeat(nextClient, generation);
       void sendKeepAwakeMode(nextClient, modeOverride ?? keepAwakeMode);
-      setCommands(await nextClient.commands());
-      setModelLimits(await nextClient.modelLimits());
-      await refresh(nextClient);
-      const restored = scannedSessionId ? await restoreSession(nextClient, scannedSessionId) : await restoreActiveSession(nextClient);
+      const nextCommands = await nextClient.commands();
+      if (!isCurrentGeneration(generation)) return false;
+      setCommands(nextCommands);
+      const nextModelLimits = await nextClient.modelLimits();
+      if (!isCurrentGeneration(generation)) return false;
+      setModelLimits(nextModelLimits);
+      await refresh(nextClient, undefined, true, false, generation);
+      const restored = scannedSessionId ? await restoreSession(nextClient, scannedSessionId, generation) : await restoreActiveSession(nextClient, generation);
+      if (!isCurrentGeneration(generation)) return false;
       if (!restored) announceWaiting(nextClient, true, modeOverride ?? keepAwakeMode);
       return true;
     } catch (cause) {
@@ -382,28 +477,50 @@ export default function App() {
     }
   }
 
-  async function refresh(target = client, sessionId = active?.id, showBusy = true, forceStreaming = false) {
+  async function refresh(target = client, sessionId = active?.id, showBusy = true, forceStreaming = false, generation = connectionGeneration.current) {
     if (!target) return;
+    if (!isCurrentGeneration(generation)) return;
     const hasLiveParts = sessionId ? sessionHasLiveParts(livePartsRef.current, sessionId) : false;
     const isStreaming = Boolean(sessionId && (sessionStatusRef.current[sessionId]?.type === "busy" || hasLiveParts));
     if (!showBusy && isStreaming && !forceStreaming) return;
     if (showBusy) setBusy(true);
     try {
+      const status = await target.openRemoteStatus();
+      if (!isCurrentGeneration(generation)) return;
+      updateOpenRemoteStatus(status, target, generation);
       const nextSessions = await target.sessions();
-      setSessions(nextSessions);
-      setSessionStatus(await target.sessionStatus());
-      setPermissions(await target.permissions());
-      setQuestions(await target.questions().catch(() => []));
-      if (sessionId) {
-        setMessages(await target.messages(sessionId));
+      if (!isCurrentGeneration(generation)) return;
+      const visibleSessions = filterActiveSessions(nextSessions, status);
+      setSessions(visibleSessions);
+      if (activeRef.current && !visibleSessions.some((item) => item.id === activeRef.current?.id)) {
+        activeRef.current = null;
+        setActive(null);
+        setMessages([]);
+        setLivePartsByMessage({});
+        livePartsRef.current = {};
+      }
+      const nextSessionStatus = await target.sessionStatus();
+      if (!isCurrentGeneration(generation)) return;
+      setSessionStatus(nextSessionStatus);
+      const nextPermissions = await target.permissions();
+      if (!isCurrentGeneration(generation)) return;
+      setPermissions(nextPermissions);
+      const nextQuestions = await target.questions().catch(() => []);
+      if (!isCurrentGeneration(generation)) return;
+      setQuestions(nextQuestions);
+      const visibleSessionId = sessionId && visibleSessions.some((item) => item.id === sessionId) ? sessionId : undefined;
+      if (visibleSessionId) {
+        const nextMessages = await target.messages(visibleSessionId);
+        if (!isCurrentGeneration(generation)) return;
+        setMessages(nextMessages);
         setLivePartsByMessage((current) => {
-          const next = removeSessionLiveParts(current, sessionId);
+          const next = removeSessionLiveParts(current, visibleSessionId);
           livePartsRef.current = next;
           return next;
         });
       }
     } finally {
-      if (showBusy) setBusy(false);
+      if (showBusy && isCurrentGeneration(generation)) setBusy(false);
     }
   }
 
@@ -459,24 +576,32 @@ export default function App() {
     setActive(null);
   }
 
-  async function restoreActiveSession(target: OpencodeClient) {
+  async function restoreActiveSession(target: OpencodeClient, generation = connectionGeneration.current) {
     const sessionId = await loadActiveSession();
     if (!sessionId) return false;
-    return restoreSession(target, sessionId);
+    return restoreSession(target, sessionId, generation);
   }
 
-  async function restoreSession(target: OpencodeClient, sessionId: string) {
+  async function restoreSession(target: OpencodeClient, sessionId: string, generation = connectionGeneration.current) {
+    if (!isCurrentGeneration(generation)) return false;
+    const status = await target.openRemoteStatus();
+    if (!isCurrentGeneration(generation)) return false;
+    updateOpenRemoteStatus(status, target, generation);
     const nextSessions = await target.sessions();
-    const session = nextSessions.find((item) => item.id === sessionId);
+    if (!isCurrentGeneration(generation)) return false;
+    const visibleSessions = filterActiveSessions(nextSessions, status);
+    const session = visibleSessions.find((item) => item.id === sessionId);
     if (!session) {
       await clearActiveSession();
       return false;
     }
-    setSessions(nextSessions);
+    setSessions(visibleSessions);
     setActive(session);
     activeRef.current = session;
     await saveActiveSession(session.id);
-    setMessages(await target.messages(session.id));
+    const nextMessages = await target.messages(session.id);
+    if (!isCurrentGeneration(generation)) return false;
+    setMessages(nextMessages);
     setLivePartsByMessage({});
     livePartsRef.current = {};
     if (appStateRef.current === "active") announceSession(target, session, keepAwakeMode);
@@ -503,22 +628,14 @@ export default function App() {
   }
 
   async function disconnect() {
+    connectionGeneration.current += 1;
+    stopHeartbeat();
     if (client) await announceDisconnected(client);
     await clearConnection();
     await clearActiveSession();
     setSettings(null);
     setScreen("sessions");
-    setSessions([]);
-    setCommands([]);
-    setModelLimits({});
-    setSessionStatus({});
-    setPermissions([]);
-    setQuestions([]);
-    activeRef.current = null;
-    setActive(null);
-    setMessages([]);
-    setLivePartsByMessage({});
-    livePartsRef.current = {};
+    clearConnectionState();
   }
 
   async function changeKeepAwakeMode(mode: KeepAwakeMode) {

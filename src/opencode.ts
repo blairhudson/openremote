@@ -37,6 +37,7 @@ type TuiToastEvent = { id?: string; type: "tui.toast.show"; properties?: { messa
 export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent | TuiToastEvent) & { serverDirectory?: string };
 
 export type Health = { healthy: boolean; version: string };
+export type OpenRemoteStatus = { instanceId: string; activeSessionIds: string[]; connected: boolean; lastHeartbeatAt: number };
 export type MessageBundle = {
   info?: Message;
   parts?: Part[];
@@ -188,6 +189,22 @@ export class OpencodeClient {
 
   questions() {
     return this.request<QuestionRequest[]>("/question");
+  }
+
+  async openRemoteStatus() {
+    try {
+      return await this.request<OpenRemoteStatus>("/openremote/status");
+    } catch {
+      return null;
+    }
+  }
+
+  async heartbeat() {
+    try {
+      return await this.request<OpenRemoteStatus>("/openremote/heartbeat", { method: "POST", body: JSON.stringify({}) });
+    } catch {
+      return null;
+    }
   }
 
   replyPermission(requestId: string, reply: "once" | "always" | "reject", message?: string) {
