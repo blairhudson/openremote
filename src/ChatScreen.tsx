@@ -1265,7 +1265,7 @@ function isTodoTool(tool: string) {
 function formatTodoOutput(output: string) {
   const todos = parseTodoOutput(output);
   if (!todos.length) return output;
-  return `# Todos\n${todos.map((todo) => `${todoGlyph(todo.status)} \n${todo.content}`).join("\n")}`;
+  return `# Todos\n${todos.map((todo) => `${todoGlyph(todo.status)} ${todo.content}`).join("\n")}`;
 }
 
 function parseTodoOutput(output: string): Array<{ content: string; status?: string }> {
