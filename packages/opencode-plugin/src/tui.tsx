@@ -86,21 +86,62 @@ function proxyLogPort() {
   return Number.isInteger(port) && port > 0 ? port : undefined;
 }
 
+const upstreamUnavailableMessage = "relaunch with";
+const upstreamUnavailableCommand = "opencode -c --hostname 127.0.0.1";
+let cachedLocalTunnelTarget: string | undefined;
+
 function localTunnelTarget() {
-  return `http://127.0.0.1:${localOpenCodePort()}`;
+  return cachedLocalTunnelTarget ?? `http://127.0.0.1:${candidateOpenCodePorts()[0] ?? 4096}`;
 }
 
-function localOpenCodePort() {
-  const configured = Number(process.env.OPENCODE_PORT);
-  if (Number.isInteger(configured) && configured > 0) return configured;
-  const proxyPort = tunnelProxyPort();
-  for (const handle of process._getActiveHandles?.() ?? []) {
-    const address = typeof handle?.address === "function" ? handle.address() : undefined;
-    if (!address || typeof address !== "object") continue;
-    if (!Number.isInteger(address.port) || address.port === proxyPort) continue;
-    if (address.address === "127.0.0.1" || address.address === "::1") return address.port;
+function cliPort() {
+  for (let index = 0; index < process.argv.length; index += 1) {
+    const arg = process.argv[index];
+    if (arg === "--port") return Number(process.argv[index + 1]);
+    if (arg.startsWith("--port=")) return Number(arg.slice("--port=".length));
   }
-  return 4096;
+  return undefined;
+}
+
+function validPort(value: unknown) {
+  return Number.isInteger(value) && Number(value) > 0 && Number(value) <= 65535 ? Number(value) : undefined;
+}
+
+function candidateOpenCodePorts() {
+  const ports = [validPort(cliPort()), validPort(Number(process.env.OPENCODE_PORT)), 4096];
+  return [...new Set(ports.filter((port): port is number => !!port))];
+}
+
+async function fetchWithTimeout(url: string, timeout = 1500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { headers: authHeaders(), signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function validOpenCodeTarget(port: number) {
+  try {
+    const response = await fetchWithTimeout(`http://127.0.0.1:${port}/session`);
+    if (!response.ok) return false;
+    return Array.isArray(await response.json());
+  } catch {
+    return false;
+  }
+}
+
+async function resolveLocalTunnelTarget() {
+  if (cachedLocalTunnelTarget && await validOpenCodeTarget(Number(new URL(cachedLocalTunnelTarget).port))) return cachedLocalTunnelTarget;
+  for (const port of candidateOpenCodePorts()) {
+    if (await validOpenCodeTarget(port)) {
+      cachedLocalTunnelTarget = `http://127.0.0.1:${port}`;
+      return cachedLocalTunnelTarget;
+    }
+  }
+  cachedLocalTunnelTarget = undefined;
+  throw new Error(upstreamUnavailableMessage);
 }
 
 function sessionIdFromContext(ctx: unknown) {
@@ -597,14 +638,14 @@ function unpublishLanService() {
   bonjour = undefined;
 }
 
-function createProxyServer() {
+function createProxyServer(targetBase: string) {
   return createServer((incoming, outgoing) => {
     if (!validRemoteAuth(incoming.headers.authorization)) {
       outgoing.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote\"" });
       outgoing.end("Unauthorized");
       return;
     }
-    const target = new URL(incoming.url ?? "/", localTunnelTarget());
+    const target = new URL(incoming.url ?? "/", targetBase);
     if (handlePluginEndpoint(target.pathname, incoming.method, outgoing)) return;
     if (!acceptRemoteClient(incoming, target.pathname)) {
       outgoing.writeHead(429);
@@ -620,7 +661,7 @@ function createProxyServer() {
       if (outgoing.headersSent) outgoing.end();
       else {
         outgoing.writeHead(502);
-        outgoing.end("Bad Gateway");
+        outgoing.end("Bad Gateway: upstream unreachable");
       }
     });
     incoming.pipe(proxied);
@@ -631,23 +672,31 @@ function startTunnelProxy() {
   if (tunnelProxy?.listening) {
     const address = tunnelProxy.address();
     if (address && typeof address === "object") {
-      setCurrentProxyPort(address.port);
-      publishLanService(address.port);
-      syncPasswordRotation();
-      startHeartbeatMonitor();
-      return Promise.resolve(address.port);
+      return resolveLocalTunnelTarget().then(() => {
+        setCurrentProxyPort(address.port);
+        publishLanService(address.port);
+        syncPasswordRotation();
+        startHeartbeatMonitor();
+        return address.port;
+      });
     }
     return Promise.reject(new Error("proxy address unavailable"));
   }
   if (tunnelProxyStarting) return tunnelProxyStarting;
   ensureProxyPassword();
-  setTunnelLog("binding");
+  setTunnelLog("checking opencode");
   requestRender();
-  tunnelProxyStarting = new Promise<number>((resolve, reject) => {
+  tunnelProxyStarting = resolveLocalTunnelTarget().catch((error) => {
+    tunnelProxyStarting = undefined;
+    setCurrentProxyPort(undefined);
+    setTunnelLog(upstreamUnavailableMessage);
+    requestRender();
+    throw error;
+  }).then((targetBase) => new Promise<number>((resolve, reject) => {
     let attempts = 0;
     const attempt = () => {
       attempts += 1;
-      const server = createProxyServer();
+      const server = createProxyServer(targetBase);
       const port = randomProxyPort();
       setTunnelLog("binding");
       requestRender();
@@ -709,7 +758,7 @@ function startTunnelProxy() {
       }
     };
     attempt();
-  });
+  }));
   return tunnelProxyStarting;
 }
 
@@ -1123,20 +1172,29 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
       </box>
       {!remoteConnected() && (
         <box width="100%" flexDirection="column" marginTop={1}>
-          <box width="100%" flexDirection="row" justifyContent="space-between">
-            <text fg={props.theme.textMuted}>scan with openremote</text>
-            <text fg={props.theme.textMuted}>{shouldRotatePassword() ? `(${qrSecondsRemaining()}s)` : ""}</text>
-          </box>
           {(() => {
             const proxyPort = currentProxyPort ?? tunnelProxyPort() ?? proxyLogPort();
             qrVersion();
             currentTunnelPassword();
             const qrUrl = proxyPort ? remoteUrl(props.sessionId ?? sessionIdFromRoute(props.api), proxyPort) : "";
+            const shouldShowScanHeader = tunnelLog() !== upstreamUnavailableMessage;
+            const isUpstreamUnavailable = tunnelLog() === upstreamUnavailableMessage;
             const lines = qrUrl ? qrLines(qrUrl) : [tunnelLog() || "starting local proxy"];
             const qrKey = qrUrl || tunnelLog() || "starting local proxy";
             return (
-              <box key={qrKey} width="100%" flexDirection="column" marginTop={1}>
-                {lines.map((line, index) => (
+              <box key={qrKey} width="100%" flexDirection="column">
+                {shouldShowScanHeader && (
+                  <box width="100%" flexDirection="row" justifyContent="space-between">
+                    <text fg={props.theme.textMuted}>scan with openremote</text>
+                    <text fg={props.theme.textMuted}>{shouldRotatePassword() ? `(${qrSecondsRemaining()}s)` : ""}</text>
+                  </box>
+                )}
+                {isUpstreamUnavailable ? (
+                  <box width="100%" flexDirection="column" alignItems="center">
+                    <text fg={props.theme.textMuted}>{upstreamUnavailableMessage}</text>
+                    <text fg={props.theme.accent}>{upstreamUnavailableCommand}</text>
+                  </box>
+                ) : lines.map((line, index) => (
                   <text key={`${qrKey}-${index}-${line}`} fg={props.theme.text}>{line}</text>
                 ))}
               </box>
@@ -1194,7 +1252,7 @@ export const tui: TuiPlugin = async (api) => {
   installCommands(api);
   installSlots(api);
   void startTunnelProxy().then(() => api.renderer.requestRender()).catch((error) => {
-    setTunnelLog("failed");
+    setTunnelLog(error instanceof Error && error.message === upstreamUnavailableMessage ? upstreamUnavailableMessage : "failed");
     api.renderer.requestRender();
   });
 };
