@@ -1730,7 +1730,7 @@ pre {
     border-radius: 0;
   }
 
-  .docs-menu-toggle:checked ~ .docs-layout .docs-sidebar {
+  .docs-menu-toggle:checked ~ .docs-page-shell .docs-sidebar {
     display: grid;
   }
 
