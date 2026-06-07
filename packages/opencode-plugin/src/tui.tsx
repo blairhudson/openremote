@@ -22,17 +22,36 @@ const proxyBindHost = "0.0.0.0";
 const defaultPasswordRotationSeconds = 30;
 const heartbeatTimeoutMs = 30000;
 const pluginInstanceId = `or_${randomBytes(8).toString("hex")}`;
+const docsUrl = "https://openremote.blairhudson.com/docs";
 
 function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
 }
 
-function remoteFlag(name: string) {
-  return (process.env[name] ?? "").toLowerCase() === "true";
+function remoteFlag(name: string, defaultValue = false) {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  return value.toLowerCase() === "true";
 }
 
 function allowNewSessions() {
   return remoteFlag("OPENCODE_REMOTE_ALLOW_NEW_SESSIONS");
+}
+
+function requireRemoteClient() {
+  return remoteFlag("OPENCODE_REMOTE_REQUIRE_CLIENT", true);
+}
+
+function maxClientIdEnabled() {
+  return remoteFlag("OPENCODE_REMOTE_MAX_CLIENT_ID", true);
+}
+
+function maxClientIpEnabled() {
+  return remoteFlag("OPENCODE_REMOTE_MAX_CLIENT_IP", false);
+}
+
+function maxClientUserAgentEnabled() {
+  return remoteFlag("OPENCODE_REMOTE_MAX_CLIENT_USER_AGENT", false);
 }
 
 function passwordRotationSeconds() {
@@ -391,6 +410,27 @@ function validRemoteAuth(header: string | string[] | undefined) {
   return decoded.slice(0, split) === remoteUsername() && (password === currentTunnelPassword() || (!!previousTunnelPassword() && password === previousTunnelPassword()));
 }
 
+function openRemoteClient(incoming: Parameters<Parameters<typeof createServer>[0]>[0]) {
+  const value = headerValue(incoming.headers["x-openremote-client"]);
+  return value && value.length <= 128 ? value : undefined;
+}
+
+function openRemoteClientProbeHeader() {
+  return { "x-openremote-client": pluginInstanceId };
+}
+
+function requireOpenRemoteClient(incoming: Parameters<Parameters<typeof createServer>[0]>[0], outgoing: Parameters<Parameters<typeof createServer>[0]>[1]) {
+  if (openRemoteClient(incoming) || !requireRemoteClient()) return true;
+  if (incoming.method === "GET" || incoming.method === "HEAD") {
+    outgoing.writeHead(302, { location: docsUrl });
+    outgoing.end();
+    return false;
+  }
+  outgoing.writeHead(403, { "content-type": "text/plain" });
+  outgoing.end("OpenRemote app required");
+  return false;
+}
+
 function generateTunnelPassword() {
   const alphabet = "abcdefghijklmnopqrstuvwxyz";
   return Array.from(randomBytes(6), (byte) => alphabet[byte % alphabet.length]).join("");
@@ -542,7 +582,7 @@ async function verifyTunnelProxy(api: TuiPluginApi, proxyPort: number) {
   const unauthenticated = await fetchTunnelHealth(healthUrl);
   if (unauthenticated.status !== 401) throw new Error(`local proxy expected 401, got ${unauthenticated.status}`);
   emitTunnelLog(api, "checking auth");
-  const authenticated = await fetchTunnelHealth(healthUrl, { authorization: remoteAuthHeader() });
+  const authenticated = await fetchTunnelHealth(healthUrl, { authorization: remoteAuthHeader(), ...openRemoteClientProbeHeader() });
   if (!authenticated.ok) throw new Error(`local proxy auth failed: ${authenticated.status} ${authenticated.statusText}`);
   emitTunnelLog(api, "auth passed");
 }
@@ -566,7 +606,7 @@ async function waitForTunnelReady(api: TuiPluginApi, url: string) {
       if (unauthenticated.status !== 401) {
         lastError = `public tunnel expected 401, got ${unauthenticated.status} ${unauthenticated.statusText}`;
       } else {
-        const authenticated = await fetchResolvedTunnelHealth(healthUrl, address, { authorization: remoteAuthHeader() }, 7000);
+        const authenticated = await fetchResolvedTunnelHealth(healthUrl, address, { authorization: remoteAuthHeader(), ...openRemoteClientProbeHeader() }, 7000);
         if (authenticated.ok) return true;
         lastError = `public tunnel auth failed: ${authenticated.status} ${authenticated.statusText}`;
       }
@@ -597,9 +637,15 @@ function headerValue(value: string | string[] | undefined) {
 }
 
 function remoteClientKey(incoming: Parameters<Parameters<typeof createServer>[0]>[0]) {
+  const parts: string[] = [];
+  const clientId = openRemoteClient(incoming);
+  if (clientId && maxClientIdEnabled()) parts.push(`id=${clientId}`);
   const forwarded = headerValue(incoming.headers["cf-connecting-ip"]) ?? headerValue(incoming.headers["x-forwarded-for"])?.split(",")[0]?.trim() ?? headerValue(incoming.headers["x-real-ip"]);
   const address = forwarded || incoming.socket.remoteAddress || "unknown";
-  return `${address}:${headerValue(incoming.headers["user-agent"]) ?? "unknown"}`;
+  if (maxClientIpEnabled()) parts.push(`ip=${address}`);
+  if (maxClientUserAgentEnabled()) parts.push(`ua=${headerValue(incoming.headers["user-agent"]) ?? "unknown"}`);
+  if (!parts.length) parts.push(`ip=${address}`);
+  return parts.join(":");
 }
 
 function shouldTrackRemoteClient(pathname: string) {
@@ -658,6 +704,7 @@ function createProxyServer(targetBase: string) {
       outgoing.end("Unauthorized");
       return;
     }
+    if (!requireOpenRemoteClient(incoming, outgoing)) return;
     const target = new URL(incoming.url ?? "/", targetBase);
     if (handlePluginEndpoint(target.pathname, incoming.method, outgoing)) return;
     if (!acceptRemoteClient(incoming, target.pathname)) {

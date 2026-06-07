@@ -78,6 +78,11 @@ function authHeaders(settings: ConnectionSettings): Record<string, string> {
   return { Authorization: authHeader(settings) };
 }
 
+function openRemoteHeaders(settings: ConnectionSettings): Record<string, string> {
+  if (!settings.clientId) return {};
+  return { "X-OpenRemote-Client": settings.clientId };
+}
+
 export class OpencodeClient {
   private settings: ConnectionSettings;
   private client: ReturnType<typeof createOpencodeClient>;
@@ -91,6 +96,7 @@ export class OpencodeClient {
       fetch: (request) => {
         const headers = new Headers(request.headers);
         if (this.settings.password) headers.set("Authorization", authHeader(this.settings));
+        if (this.settings.clientId) headers.set("X-OpenRemote-Client", this.settings.clientId);
         return fetch(new Request(request, { headers }));
       },
     });
@@ -101,6 +107,7 @@ export class OpencodeClient {
       ...init,
       headers: {
         ...authHeaders(this.settings),
+        ...openRemoteHeaders(this.settings),
         Accept: "application/json",
         "Content-Type": "application/json",
         ...init.headers,
@@ -279,7 +286,7 @@ export class OpencodeClient {
 
   events(onEvent: (event: StreamEvent) => void, onUnknown: () => void) {
     const source = new EventSource(`${this.settings.baseUrl}/global/event`, {
-      headers: authHeaders(this.settings),
+      headers: { ...authHeaders(this.settings), ...openRemoteHeaders(this.settings) },
     } as never);
 
     const handleEvent = (event: { data?: string; type?: string }) => {

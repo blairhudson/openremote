@@ -158,6 +158,26 @@ const tuiConfig = `{
                     <td>Maximum authenticated OpenRemote clients allowed through the proxy. <code>0</code> allows any number.</td>
                   </tr>
                   <tr>
+                    <td><code>OPENCODE_REMOTE_REQUIRE_CLIENT</code></td>
+                    <td><code>true</code></td>
+                    <td>Requires the app's anonymous client header. Browser opens redirect to the docs. Set to <code>false</code> only for older app versions.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_ID</code></td>
+                    <td><code>true</code></td>
+                    <td>Uses the app's anonymous client id when counting clients.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_IP</code></td>
+                    <td><code>false</code></td>
+                    <td>Adds client IP address to max-client counting. Missing client ids still fall back to IP when legacy access is allowed.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_USER_AGENT</code></td>
+                    <td><code>false</code></td>
+                    <td>Adds user agent to max-client counting. Leave unset to avoid counting the same app as multiple clients.</td>
+                  </tr>
+                  <tr>
                     <td><code>OPENCODE_REMOTE_ALLOW_NEW_SESSIONS</code></td>
                     <td><code>false</code></td>
                     <td>Shows the app new-session action when set to <code>true</code>. Use <code>false</code> or leave unset to hide it.</td>

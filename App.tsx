@@ -7,7 +7,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
 import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type OpenRemoteStatus, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
-import { clearActiveSession, clearConnection, loadActiveSession, loadConnection, loadKeepAwakeMode, loadLocalConnection, loadRemotePassword, loadTunnelConnection, loadTunnelMode, saveActiveSession, saveConnection, saveKeepAwakeMode, saveLocalConnection, saveRemotePassword, saveTunnelConnection, saveTunnelMode, type ConnectionSettings, type KeepAwakeMode, type TunnelMode } from "./src/storage";
+import { clearActiveSession, clearConnection, loadActiveSession, loadClientId, loadConnection, loadKeepAwakeMode, loadLocalConnection, loadRemotePassword, loadTunnelConnection, loadTunnelMode, regenerateClientId, saveActiveSession, saveConnection, saveKeepAwakeMode, saveLocalConnection, saveRemotePassword, saveTunnelConnection, saveTunnelMode, type ConnectionSettings, type KeepAwakeMode, type TunnelMode } from "./src/storage";
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
 import { SettingsScreen, type TunnelCapability } from "./src/SettingsScreen";
@@ -436,6 +436,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
+      next = { ...next, clientId: next.clientId ?? await loadClientId() };
       const nextClient = new OpencodeClient(next);
       await nextClient.health();
       const status = await nextClient.openRemoteStatus();
@@ -476,6 +477,30 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function regenerateOpenRemoteClientId() {
+    const current = settingsRef.current;
+    if (!current) return;
+    const clientId = await regenerateClientId();
+    const next = { ...current, clientId };
+    await saveConnection(next);
+    if (isTunnelConnection(next)) {
+      await saveTunnelConnection(next);
+      setTunnelSettings(next);
+      tunnelSettingsRef.current = next;
+    } else {
+      await saveLocalConnection(next);
+      setLocalSettings(next);
+      localSettingsRef.current = next;
+    }
+    connectionGeneration.current += 1;
+    const generation = connectionGeneration.current;
+    stopHeartbeat();
+    setSettings(next);
+    settingsRef.current = next;
+    const nextClient = new OpencodeClient(next);
+    if (openRemoteStatusRef.current) startHeartbeat(nextClient, generation);
   }
 
   async function refresh(target = client, sessionId = active?.id, showBusy = true, forceStreaming = false, generation = connectionGeneration.current) {
@@ -746,7 +771,7 @@ export default function App() {
           ) : active ? (
             <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} allowNewSessions={allowNewSessions} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
           ) : screen === "settings" ? (
-            <SettingsScreen keepAwakeMode={keepAwakeMode} tunnelMode={tunnelMode} tunnelCapability={tunnelCapability} tunnelUrl={tunnelUrl} tunnelError={tunnelError} tunnelLog={tunnelLog} remoteAccessInUse={isTunnelConnection(settings)} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} onChangeTunnelMode={(mode) => void changeTunnelMode(mode)} />
+            <SettingsScreen keepAwakeMode={keepAwakeMode} tunnelMode={tunnelMode} tunnelCapability={tunnelCapability} tunnelUrl={tunnelUrl} tunnelError={tunnelError} tunnelLog={tunnelLog} remoteAccessInUse={isTunnelConnection(settings)} serverUrl={settings?.baseUrl ?? ""} clientId={settings?.clientId} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} onChangeTunnelMode={(mode) => void changeTunnelMode(mode)} onRegenerateClientId={() => void regenerateOpenRemoteClientId()} />
           ) : (
             <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} allowNewSessions={allowNewSessions} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
           )}

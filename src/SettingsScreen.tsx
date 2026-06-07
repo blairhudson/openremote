@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 
+import appConfig from "../app.json";
 import { CommandButton, RailPanel, StatusLine, TerminalText } from "./components";
 import type { KeepAwakeMode, TunnelMode } from "./storage";
 import { colors, spacing } from "./theme";
@@ -15,9 +17,11 @@ type Props = {
   tunnelLog?: string | null;
   remoteAccessInUse: boolean;
   serverUrl: string;
+  clientId?: string;
   onBack: () => void;
   onChangeKeepAwakeMode: (mode: KeepAwakeMode) => void;
   onChangeTunnelMode: (mode: TunnelMode) => void;
+  onRegenerateClientId: () => void;
 };
 
 const keepAwakeOptions: { mode: KeepAwakeMode; label: string; description: string }[] = [
@@ -31,7 +35,14 @@ const tunnelOptions: { mode: TunnelMode; label: string; description: string }[] 
   { mode: "cloudflare", label: "cloudflare", description: "start a temporary Cloudflare tunnel on desktop" },
 ];
 
-export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tunnelUrl, tunnelError, tunnelLog, remoteAccessInUse, serverUrl, onBack, onChangeKeepAwakeMode, onChangeTunnelMode }: Props) {
+export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tunnelUrl, tunnelError, tunnelLog, remoteAccessInUse, serverUrl, clientId, onBack, onChangeKeepAwakeMode, onChangeTunnelMode, onRegenerateClientId }: Props) {
+  const [regenerateOpen, setRegenerateOpen] = useState(false);
+
+  function regenerate() {
+    setRegenerateOpen(false);
+    onRegenerateClientId();
+  }
+
   return (
     <View style={styles.wrap}>
       <StatusLine
@@ -86,8 +97,42 @@ export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tu
           </View>
         </View>
       </RailPanel>
+      <View style={styles.footer}>
+        <Pressable onPress={() => setRegenerateOpen(true)}>
+          <TerminalText tone="cyan" size={12}>{clientId ?? "not generated"}</TerminalText>
+        </Pressable>
+        <TerminalText tone="muted" size={12}>OpenRemote {appVersion()} · {deviceInfo()}</TerminalText>
+      </View>
+      <RegenerateClientIdModal visible={regenerateOpen} onCancel={() => setRegenerateOpen(false)} onRegenerate={regenerate} />
     </View>
   );
+}
+
+function RegenerateClientIdModal({ visible, onCancel, onRegenerate }: { visible: boolean; onCancel: () => void; onRegenerate: () => void }) {
+  return (
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onCancel}>
+      <View style={styles.modalBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+        <View style={styles.modalCard}>
+          <TerminalText bold size={18}>Regenerate client id?</TerminalText>
+          <TerminalText tone="muted" size={13}>This changes how this app is counted by OpenRemote. Existing desktop connections may need reconnecting.</TerminalText>
+          <View style={styles.modalActions}>
+            <CommandButton label="cancel" tone="muted" onPress={onCancel} />
+            <CommandButton label="regenerate" tone="yellow" onPress={onRegenerate} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function appVersion() {
+  return appConfig.expo.version;
+}
+
+function deviceInfo() {
+  const version = Platform.Version ? String(Platform.Version) : "unknown";
+  return `${Platform.OS} ${version}`;
 }
 
 function cloudflareDisabledReason(capability: TunnelCapability) {
@@ -116,6 +161,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.md,
   },
+  footer: {
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: "auto",
+  },
   header: {
     alignItems: "center",
     flexDirection: "row",
@@ -142,5 +192,26 @@ const styles = StyleSheet.create({
   },
   optionHeader: {
     flexDirection: "row",
+  },
+  modalBackdrop: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderWidth: 1,
+    gap: spacing.md,
+    maxWidth: 420,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "flex-end",
   },
 });

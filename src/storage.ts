@@ -5,6 +5,7 @@ export type ConnectionSettings = {
   baseUrl: string;
   username: string;
   password: string;
+  clientId?: string;
 };
 
 export type KeepAwakeMode = "auto" | "connected" | "off";
@@ -17,6 +18,30 @@ const activeSessionKey = "openremote.active-session";
 const keepAwakeModeKey = "openremote.keep-awake-mode";
 const tunnelModeKey = "openremote.tunnel-mode";
 const remotePasswordKey = "openremote.remote-password";
+const clientIdKey = "openremote.client-id";
+
+function generateClientId() {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] === 0) bytes[index] = Math.floor(Math.random() * 256);
+  }
+  return `or_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export async function loadClientId() {
+  const saved = await getItem(clientIdKey);
+  if (saved) return saved;
+  const generated = generateClientId();
+  await setItem(clientIdKey, generated);
+  return generated;
+}
+
+export async function regenerateClientId() {
+  const generated = generateClientId();
+  await setItem(clientIdKey, generated);
+  return generated;
+}
 
 export async function loadConnection() {
   const value = await getItem(key);
