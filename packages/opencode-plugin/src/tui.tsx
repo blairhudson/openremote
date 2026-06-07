@@ -248,6 +248,7 @@ function qrLines(value: string) {
   if (cachedQrUrl !== value) {
     cachedQrUrl = value;
     cachedQrLines = qrText(value).split("\n");
+    while (cachedQrLines.at(-1) === "") cachedQrLines.pop();
   }
   return cachedQrLines;
 }
@@ -1265,13 +1266,13 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
             const shouldShowScanHeader = tunnelLog() !== upstreamUnavailableMessage;
             const isUpstreamUnavailable = tunnelLog() === upstreamUnavailableMessage;
             const lines = qrUrl ? qrLines(qrUrl) : [tunnelLog() || "starting local proxy"];
+            const qrWidth = Math.max(...lines.map((line) => line.length), 0);
             const qrKey = qrUrl || tunnelLog() || "starting local proxy";
             return (
               <box key={qrKey} width="100%" flexDirection="column">
                 {shouldShowScanHeader && (
-                  <box width="100%" flexDirection="row" justifyContent="space-between">
-                    <text fg={props.theme.textMuted}>scan with openremote</text>
-                    <text fg={props.theme.textMuted}>{shouldRotatePassword() ? `(${qrSecondsRemaining()}s)` : ""}</text>
+                  <box width="100%" flexDirection="column" alignItems="center">
+                    <text fg={props.theme.textMuted}>Scan with OpenRemote{shouldRotatePassword() ? ` (${qrSecondsRemaining()}s)` : ""}</text>
                   </box>
                 )}
                 {isUpstreamUnavailable ? (
@@ -1279,9 +1280,15 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
                     <text fg={props.theme.textMuted}>{upstreamUnavailableMessage}</text>
                     <text fg={props.theme.accent}>{upstreamUnavailableCommand}</text>
                   </box>
-                ) : lines.map((line, index) => (
-                  <text key={`${qrKey}-${index}-${line}`} fg={props.theme.text}>{line}</text>
-                ))}
+                ) : (
+                  <box width="100%" flexDirection="column" alignItems="center">
+                    <box width={qrWidth} flexDirection="column">
+                      {lines.map((line, index) => (
+                        <text key={`${qrKey}-${index}-${line}`} fg={props.theme.text}>{line}</text>
+                      ))}
+                    </box>
+                  </box>
+                )}
               </box>
             );
           })()}
@@ -1290,15 +1297,15 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
       {remoteConnected() && (
         <box width="100%" flexDirection="column" marginTop={1}>
           <box width="100%" flexDirection="row" justifyContent="space-between">
-            <text fg={props.theme.text}>local access</text>
+            <text fg={props.theme.text}>Local Access</text>
             <text fg={props.theme.accent}>{remoteDevice()} connected</text>
           </box>
           <box width="100%" flexDirection="row" justifyContent="space-between" onClick={() => toggleKeepAwake(props.api)}>
-            <text fg={props.theme.text}>keep awake</text>
+            <text fg={props.theme.text}>Keep Awake</text>
             <text fg={keepAwakeEnabled() ? props.theme.accent : props.theme.textMuted}>{keepAwakeMode()}</text>
           </box>
           <box width="100%" flexDirection="row" justifyContent="space-between">
-            <text fg={props.theme.text}>remote access</text>
+            <text fg={props.theme.text}>Remote Access</text>
             <text fg={props.theme.textMuted}>{tunnelLog() || (tunnelStatus() === "ready" ? "" : tunnelStatusLabel())}</text>
           </box>
         </box>
