@@ -23,6 +23,7 @@ const remoteUsername = () => process.env.OPENCODE_REMOTE_USERNAME ?? "opencode";
 const proxyBindHost = "0.0.0.0";
 const defaultPasswordRotationSeconds = 30;
 const defaultHeartbeatTimeoutSeconds = 30;
+const defaultResumeSeconds = 28800;
 const pluginInstanceId = `or_${randomBytes(8).toString("hex")}`;
 const docsUrl = "https://openremote.blairhudson.com/docs";
 const proxyResumeStatePath = join(tmpdir(), "openremote-proxy-resume.json");
@@ -57,6 +58,10 @@ function maxClientUserAgentEnabled() {
   return remoteFlag("OPENCODE_REMOTE_MAX_CLIENT_USER_AGENT", false);
 }
 
+function remoteResumeEnabled() {
+  return remoteFlag("OPENCODE_REMOTE_RESUME", true);
+}
+
 function passwordRotationSeconds() {
   const value = Number(process.env.OPENCODE_REMOTE_SECRET_ROTATION_SECONDS ?? defaultPasswordRotationSeconds);
   if (!Number.isFinite(value)) return defaultPasswordRotationSeconds;
@@ -75,6 +80,16 @@ function heartbeatTimeoutSeconds() {
 
 function heartbeatTimeoutMs() {
   return heartbeatTimeoutSeconds() * 1000;
+}
+
+function resumeSeconds() {
+  const value = Number(process.env.OPENCODE_REMOTE_RESUME_SECONDS ?? defaultResumeSeconds);
+  if (!Number.isFinite(value)) return defaultResumeSeconds;
+  return Math.min(86400, Math.max(1, Math.floor(value)));
+}
+
+function resumeMs() {
+  return resumeSeconds() * 1000;
 }
 
 function shouldRotatePassword() {
@@ -217,6 +232,10 @@ let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let passwordRotatesAt = 0;
 let lastHeartbeatAt = 0;
 let visibleSessionId: string | undefined;
+let activeClientId: string | undefined;
+let resumeClientId: string | undefined;
+let resumePassword: string | undefined;
+let resumeExpiresAt = 0;
 const remoteClients = new Set<string>();
 let cleanupInstalled = false;
 let cachedQrUrl = "";
@@ -236,7 +255,6 @@ const [tunnelUrl, setTunnelUrl] = createSignal("");
 const [tunnelLog, setTunnelLog] = createSignal("");
 const [tunnelProxyPort, setTunnelProxyPort] = createSignal<number | undefined>();
 const [currentTunnelPassword, setCurrentTunnelPassword] = createSignal("");
-const [previousTunnelPassword, setPreviousTunnelPassword] = createSignal("");
 const [qrVersion, setQrVersion] = createSignal(0);
 const [qrSecondsRemaining, setQrSecondsRemaining] = createSignal(passwordRotationSeconds());
 
@@ -312,6 +330,7 @@ function stopTunnelProxy() {
   stopPasswordRotation();
   stopHeartbeatMonitor();
   remoteClients.clear();
+  clearRemoteClientState();
   unpublishLanService();
   try {
     tunnelProxy?.close();
@@ -323,6 +342,40 @@ function stopTunnelProxy() {
   setCurrentProxyPort(undefined);
 }
 
+function clearRemoteClientState() {
+  activeClientId = undefined;
+  resumeClientId = undefined;
+  resumePassword = undefined;
+  resumeExpiresAt = 0;
+}
+
+function clearResumeCredential() {
+  resumeClientId = undefined;
+  resumePassword = undefined;
+  resumeExpiresAt = 0;
+}
+
+function purgeExpiredResumeCredential() {
+  if (!resumeClientId || !resumePassword || !resumeExpiresAt) return;
+  if (!remoteResumeEnabled() || Date.now() >= resumeExpiresAt) clearResumeCredential();
+}
+
+function prepareResumeCredential() {
+  purgeExpiredResumeCredential();
+  if (!remoteResumeEnabled() || remoteSecret() || !activeClientId || !currentTunnelPassword()) {
+    clearRemoteClientState();
+    return;
+  }
+  resumeClientId = activeClientId;
+  resumePassword = currentTunnelPassword();
+  resumeExpiresAt = Date.now() + resumeMs();
+  activeClientId = undefined;
+  setCurrentTunnelPassword(generateTunnelPassword());
+  cachedQrUrl = "";
+  cachedQrLines = [];
+  setQrVersion((value) => value + 1);
+}
+
 function readProxyResumeState() {
   try {
     const state = JSON.parse(readFileSync(proxyResumeStatePath, "utf8"));
@@ -330,9 +383,22 @@ function readProxyResumeState() {
     const password = typeof state?.password === "string" ? state.password : "";
     const username = typeof state?.username === "string" ? state.username : "";
     const updatedAt = Number(state?.updatedAt);
+    const freshQuickRestart = Number.isFinite(updatedAt) && Date.now() - updatedAt <= heartbeatTimeoutMs();
+    const storedResumeExpiresAt = Number(state?.resumeExpiresAt);
+    const hasValidResume = remoteResumeEnabled() && Number.isFinite(storedResumeExpiresAt) && Date.now() < storedResumeExpiresAt && typeof state?.resumeClientId === "string" && typeof state?.resumePassword === "string";
     if (!port || !password || !username || !Number.isFinite(updatedAt)) return undefined;
-    if (Date.now() - updatedAt > heartbeatTimeoutMs()) return undefined;
-    return { port, password, username, updatedAt };
+    if (!freshQuickRestart && !hasValidResume) return undefined;
+    return {
+      port,
+      password,
+      username,
+      updatedAt,
+      freshQuickRestart,
+      activeClientId: freshQuickRestart && typeof state?.activeClientId === "string" ? state.activeClientId : undefined,
+      resumeClientId: hasValidResume ? state.resumeClientId : undefined,
+      resumePassword: hasValidResume ? state.resumePassword : undefined,
+      resumeExpiresAt: hasValidResume ? storedResumeExpiresAt : 0,
+    };
   } catch {
     return undefined;
   }
@@ -345,8 +411,13 @@ function writeProxyResumeState() {
       port: currentProxyPort,
       password: currentTunnelPassword(),
       username: remoteUsername(),
+      activeClientId,
+      resumeClientId,
+      resumePassword,
+      resumeExpiresAt: resumeExpiresAt || undefined,
       updatedAt: Date.now(),
       heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
+      resumeSeconds: resumeSeconds(),
     }));
   } catch {
     // resume is best-effort only
@@ -356,7 +427,11 @@ function writeProxyResumeState() {
 function applyProxyResumeState() {
   const state = readProxyResumeState();
   if (!state) return undefined;
-  if (!remoteSecret()) setCurrentTunnelPassword(state.password);
+  if (!remoteSecret() && state.freshQuickRestart) setCurrentTunnelPassword(state.password);
+  activeClientId = state.activeClientId;
+  resumeClientId = state.resumeClientId;
+  resumePassword = state.resumePassword;
+  resumeExpiresAt = state.resumeExpiresAt;
   return state;
 }
 
@@ -380,15 +455,52 @@ function sendJson(outgoing: Parameters<Parameters<typeof createServer>[0]>[1], s
   outgoing.end(JSON.stringify(body));
 }
 
-function handlePluginEndpoint(pathname: string, method: string | undefined, outgoing: Parameters<Parameters<typeof createServer>[0]>[1]) {
+function acceptAuthenticatedRemote(auth: { ok: true; kind: "current" | "resume"; clientId?: string }) {
+  if (!auth.clientId) return;
+  if (auth.kind === "resume") {
+    setCurrentTunnelPassword(resumePassword ?? currentTunnelPassword());
+    activeClientId = auth.clientId;
+    clearResumeCredential();
+  } else if (!activeClientId) {
+    activeClientId = auth.clientId;
+    clearResumeCredential();
+  } else if (activeClientId !== auth.clientId) {
+    activeClientId = auth.clientId;
+    clearResumeCredential();
+  }
+  writeProxyResumeState();
+}
+
+function disconnectAuthenticatedRemote(clientId: string | undefined) {
+  if (!clientId) return false;
+  const matched = activeClientId === clientId || resumeClientId === clientId;
+  if (!matched) return false;
+  clearRemoteClientState();
+  remoteClients.clear();
+  if (!remoteSecret()) setCurrentTunnelPassword(generateTunnelPassword());
+  cachedQrUrl = "";
+  cachedQrLines = [];
+  setQrVersion((value) => value + 1);
+  writeProxyResumeState();
+  return true;
+}
+
+function handlePluginEndpoint(pathname: string, method: string | undefined, auth: { ok: true; kind: "current" | "resume"; clientId?: string }, outgoing: Parameters<Parameters<typeof createServer>[0]>[1]) {
   if (pathname === "/openremote/status" && method === "GET") {
     sendJson(outgoing, 200, pluginStatus());
     return true;
   }
   if (pathname === "/openremote/heartbeat" && method === "POST") {
     lastHeartbeatAt = Date.now();
+    acceptAuthenticatedRemote(auth);
     writeProxyResumeState();
     if (latestApi) markRemoteConnected(latestApi);
+    sendJson(outgoing, 200, pluginStatus());
+    return true;
+  }
+  if (pathname === "/openremote/disconnect" && method === "POST") {
+    disconnectAuthenticatedRemote(auth.clientId);
+    if (latestApi) markRemoteDisconnected(latestApi, false);
     sendJson(outgoing, 200, pluginStatus());
     return true;
   }
@@ -400,7 +512,7 @@ function startHeartbeatMonitor() {
   heartbeatTimer = setInterval(() => {
     if (!lastHeartbeatAt || Date.now() - lastHeartbeatAt <= heartbeatTimeoutMs()) return;
     lastHeartbeatAt = 0;
-    if (latestApi) markRemoteDisconnected(latestApi);
+    if (latestApi) markRemoteDisconnected(latestApi, true);
   }, 1000);
   heartbeatTimer.unref?.();
 }
@@ -451,15 +563,22 @@ function cloudflareCapability() {
   });
 }
 
-function validRemoteAuth(header: string | string[] | undefined) {
-  if (!currentTunnelPassword()) return false;
-  const value = Array.isArray(header) ? header[0] : header;
-  if (!value?.startsWith("Basic ")) return false;
+function validRemoteAuth(incoming: Parameters<Parameters<typeof createServer>[0]>[0]) {
+  if (!currentTunnelPassword()) return { ok: false };
+  purgeExpiredResumeCredential();
+  const value = headerValue(incoming.headers.authorization);
+  if (!value?.startsWith("Basic ")) return { ok: false };
   const decoded = Buffer.from(value.slice("Basic ".length), "base64").toString("utf8");
   const split = decoded.indexOf(":");
-  if (split === -1) return false;
+  if (split === -1) return { ok: false };
   const password = decoded.slice(split + 1);
-  return decoded.slice(0, split) === remoteUsername() && (password === currentTunnelPassword() || (!!previousTunnelPassword() && password === previousTunnelPassword()));
+  if (decoded.slice(0, split) !== remoteUsername()) return { ok: false };
+  const clientId = openRemoteClient(incoming);
+  if (password === currentTunnelPassword()) {
+    return { ok: true, kind: "current", clientId };
+  }
+  if (remoteResumeEnabled() && resumePassword && password === resumePassword && clientId && clientId === resumeClientId) return { ok: true, kind: "resume", clientId };
+  return { ok: false };
 }
 
 function openRemoteClient(incoming: Parameters<Parameters<typeof createServer>[0]>[0]) {
@@ -510,7 +629,6 @@ function ensureProxyPassword() {
 function refreshProxyPassword() {
   if (!shouldRotatePassword()) return;
   ensureProxyPassword();
-  setPreviousTunnelPassword(currentTunnelPassword());
   setCurrentTunnelPassword(generateTunnelPassword());
   passwordRotatesAt = Date.now() + passwordRotationMs();
   cachedQrUrl = "";
@@ -521,7 +639,7 @@ function refreshProxyPassword() {
 }
 
 function startPasswordRotation() {
-  if (passwordRotation || (remoteConnected() && remoteStatus() === "connected")) return;
+  if (passwordRotation || activeClientId || (remoteConnected() && remoteStatus() === "connected")) return;
   ensureProxyPassword();
   if (!shouldRotatePassword()) {
     setQrSecondsRemaining(0);
@@ -531,7 +649,7 @@ function startPasswordRotation() {
   passwordRotatesAt = Date.now() + passwordRotationMs();
   setQrSecondsRemaining(passwordRotationSeconds());
   passwordRotation = setInterval(() => {
-    if (remoteConnected() && remoteStatus() === "connected") {
+    if (activeClientId || (remoteConnected() && remoteStatus() === "connected")) {
       stopPasswordRotation();
       return;
     }
@@ -551,7 +669,7 @@ function stopPasswordRotation() {
 }
 
 function syncPasswordRotation() {
-  if (remoteConnected() && remoteStatus() === "connected") stopPasswordRotation();
+  if (activeClientId || (remoteConnected() && remoteStatus() === "connected")) stopPasswordRotation();
   else startPasswordRotation();
 }
 
@@ -751,19 +869,21 @@ function unpublishLanService() {
 
 function createProxyServer(targetBase: string) {
   return createServer((incoming, outgoing) => {
-    if (!validRemoteAuth(incoming.headers.authorization)) {
+    const auth = validRemoteAuth(incoming);
+    if (!auth.ok) {
       outgoing.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote\"" });
       outgoing.end("Unauthorized");
       return;
     }
     if (!requireOpenRemoteClient(incoming, outgoing)) return;
     const target = new URL(incoming.url ?? "/", targetBase);
-    if (handlePluginEndpoint(target.pathname, incoming.method, outgoing)) return;
+    if (handlePluginEndpoint(target.pathname, incoming.method, auth, outgoing)) return;
     if (!acceptRemoteClient(incoming, target.pathname)) {
       outgoing.writeHead(429);
       outgoing.end("Too Many Clients");
       return;
     }
+    if (shouldTrackRemoteClient(target.pathname)) acceptAuthenticatedRemote(auth);
     if (latestApi) markRemoteConnected(latestApi);
     const proxied = request(target, { method: incoming.method, headers: { ...proxyHeaders(incoming.headers), ...authHeaders() } }, (response) => {
       outgoing.writeHead(response.statusCode ?? 502, response.statusMessage, response.headers);
@@ -1064,9 +1184,12 @@ function markRemoteWaiting(api: TuiPluginApi) {
   api.renderer.requestRender();
 }
 
-function markRemoteDisconnected(api: TuiPluginApi) {
+function markRemoteDisconnected(api: TuiPluginApi, allowResume = false) {
   const changed = remoteConnected() || keepAwakeEnabled();
   remoteClients.clear();
+  if (allowResume) prepareResumeCredential();
+  else clearRemoteClientState();
+  writeProxyResumeState();
   if (!changed) return;
   setRemoteConnected(false);
   setRemoteStatus("waiting");

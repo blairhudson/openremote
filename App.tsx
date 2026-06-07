@@ -882,6 +882,7 @@ function announceWaiting(client: OpencodeClient, showToast = true, keepAwakeMode
 
 async function announceDisconnected(client: OpencodeClient) {
   await Promise.allSettled([
+    client.openRemoteDisconnect(),
     client.executeTuiCommand("openremote.disconnected"),
     client.showToast("openremote disconnected"),
   ]);

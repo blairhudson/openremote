@@ -150,12 +150,22 @@ const tuiConfig = `{
                   <tr>
                     <td><code>OPENCODE_REMOTE_SECRET_ROTATION_SECONDS</code></td>
                     <td><code>30</code></td>
-                    <td>Rotation interval from <code>0</code> to <code>3600</code> seconds. <code>0</code> means generate once on start and never rotate. Ignored when <code>OPENCODE_REMOTE_SECRET</code> is set.</td>
+                    <td>Rotation interval from <code>0</code> to <code>3600</code> seconds before the first app connection. <code>0</code> means generate once on start and never rotate. Ignored when <code>OPENCODE_REMOTE_SECRET</code> is set.</td>
                   </tr>
                   <tr>
                     <td><code>OPENCODE_REMOTE_HEARTBEAT_TIMEOUT_SECONDS</code></td>
                     <td><code>30</code></td>
                     <td>Connected heartbeat timeout from <code>5</code> to <code>300</code> seconds. Also controls how long the app waits for the same proxy port and password during a quick opencode restart.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_RESUME</code></td>
+                    <td><code>true</code></td>
+                    <td>Allows the previous app client id to reconnect with a hidden resume secret after heartbeat loss. A new QR connection or explicit disconnect expires it.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_RESUME_SECONDS</code></td>
+                    <td><code>28800</code></td>
+                    <td>Resume-secret lifetime from <code>1</code> to <code>86400</code> seconds. Applies in-process and across quick plugin restarts.</td>
                   </tr>
                   <tr>
                     <td><code>OPENCODE_REMOTE_MAX_CLIENTS</code></td>

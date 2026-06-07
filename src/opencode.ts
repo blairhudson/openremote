@@ -214,6 +214,14 @@ export class OpencodeClient {
     }
   }
 
+  async openRemoteDisconnect() {
+    try {
+      return await this.request<OpenRemoteStatus>("/openremote/disconnect", { method: "POST", body: JSON.stringify({}) });
+    } catch {
+      return null;
+    }
+  }
+
   replyPermission(requestId: string, reply: "once" | "always" | "reject", message?: string) {
     return this.request<boolean>(`/permission/${encodeURIComponent(requestId)}/reply`, {
       method: "POST",
