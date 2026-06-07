@@ -209,7 +209,6 @@ let cleanupInstalled = false;
 let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
-let cleanupRan = false;
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
 const registeredSlotApis = new WeakSet<object>();
@@ -978,15 +977,6 @@ function setKeepAwakeModeCommand(api: TuiPluginApi, mode: "auto" | "connected" |
 function installCleanup() {
   if (cleanupInstalled) return;
   cleanupInstalled = true;
-  const cleanup = () => {
-    if (cleanupRan) return;
-    cleanupRan = true;
-    stopKeepAwake();
-    stopPasswordRotation();
-    stopTunnel();
-    stopTunnelProxy();
-  };
-  process.once("exit", cleanup);
 }
 
 function toggleKeepAwake(api: TuiPluginApi) {
