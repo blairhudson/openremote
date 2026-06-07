@@ -190,6 +190,7 @@ let cleanupInstalled = false;
 let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
+let cleanupRan = false;
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
 const registeredSlotApis = new WeakSet<object>();
@@ -280,7 +281,11 @@ function stopTunnelProxy() {
   stopHeartbeatMonitor();
   remoteClients.clear();
   unpublishLanService();
-  tunnelProxy?.close();
+  try {
+    tunnelProxy?.close();
+  } catch {
+    // server may already be closing during process shutdown
+  }
   tunnelProxy = undefined;
   tunnelProxyStarting = undefined;
   setCurrentProxyPort(undefined);
@@ -632,9 +637,17 @@ function publishLanService(port: number) {
 }
 
 function unpublishLanService() {
-  mdnsService?.stop();
+  try {
+    mdnsService?.stop();
+  } catch {
+    // service may already be stopped during process shutdown
+  }
   mdnsService = undefined;
-  bonjour?.destroy();
+  try {
+    bonjour?.destroy();
+  } catch {
+    // native mDNS cleanup can race process teardown
+  }
   bonjour = undefined;
 }
 
@@ -919,32 +932,14 @@ function installCleanup() {
   if (cleanupInstalled) return;
   cleanupInstalled = true;
   const cleanup = () => {
+    if (cleanupRan) return;
+    cleanupRan = true;
     stopKeepAwake();
     stopPasswordRotation();
     stopTunnel();
     stopTunnelProxy();
   };
   process.once("exit", cleanup);
-  process.once("SIGINT", () => {
-    cleanup();
-    process.exit(130);
-  });
-  process.once("SIGTERM", () => {
-    cleanup();
-    process.exit(143);
-  });
-  process.once("SIGHUP", () => {
-    cleanup();
-    process.exit(129);
-  });
-  process.once("uncaughtException", (error) => {
-    cleanup();
-    throw error;
-  });
-  process.once("unhandledRejection", (reason) => {
-    cleanup();
-    throw reason;
-  });
 }
 
 function toggleKeepAwake(api: TuiPluginApi) {
