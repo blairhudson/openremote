@@ -12,6 +12,10 @@ import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
 import { SettingsScreen, type TunnelCapability } from "./src/SettingsScreen";
 
+const connectedHeartbeatMs = 10000;
+const disconnectedHeartbeatMs = 5000;
+const defaultHeartbeatTimeoutSeconds = 30;
+
 export default function App() {
   const [fontsLoaded] = useFonts({ JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraBold });
   const [settings, setSettings] = useState<ConnectionSettings | null>(null);
@@ -49,8 +53,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [eventSubscriptionKey, setEventSubscriptionKey] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const heartbeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionGeneration = useRef(0);
+  const reconnectStartedAt = useRef(0);
   const livePartsRef = useRef<Record<string, Record<string, Part>>>({});
   const sessionStatusRef = useRef<Record<string, SessionStatus>>({});
   const openRemoteStatusRef = useRef<OpenRemoteStatus | null>(null);
@@ -83,7 +88,7 @@ export default function App() {
       setRemotePassword(savedRemotePassword ?? "");
       remotePasswordRef.current = savedRemotePassword ?? "";
       pendingTunnelMode.current = savedTunnelMode;
-      if (savedConnection) connect(savedConnection, undefined, savedKeepAwakeMode, isTunnelConnection(savedConnection));
+      if (savedConnection) connect(savedConnection, undefined, savedKeepAwakeMode, isTunnelConnection(savedConnection), true);
     });
   }, []);
 
@@ -183,8 +188,41 @@ export default function App() {
   }
 
   function stopHeartbeat() {
-    if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+    if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current);
     heartbeatTimer.current = null;
+    reconnectStartedAt.current = 0;
+  }
+
+  function currentHeartbeatTimeoutMs(status = openRemoteStatusRef.current, saved = settingsRef.current) {
+    const seconds = status?.heartbeatTimeoutSeconds ?? saved?.heartbeatTimeoutSeconds ?? defaultHeartbeatTimeoutSeconds;
+    return Math.max(5, seconds) * 1000;
+  }
+
+  async function returnHomeAfterConnectionLoss(generation: number) {
+    if (!isCurrentGeneration(generation)) return;
+    connectionGeneration.current += 1;
+    stopHeartbeat();
+    await clearConnection();
+    await clearActiveSession();
+    setSettings(null);
+    setScreen("sessions");
+    clearConnectionState();
+    setBusy(false);
+    setError("connection lost");
+  }
+
+  async function reloadAfterReconnect(target: OpencodeClient, generation: number) {
+    try {
+      const nextCommands = await target.commands();
+      if (!isCurrentGeneration(generation)) return;
+      setCommands(nextCommands);
+      const nextModelLimits = await target.modelLimits();
+      if (!isCurrentGeneration(generation)) return;
+      setModelLimits(nextModelLimits);
+      await refresh(target, activeSessionIdRef.current, false, true, generation);
+    } catch {
+      // heartbeat loop will keep reconnecting if proxy drops again
+    }
   }
 
   function startHeartbeat(target: OpencodeClient, generation: number) {
@@ -193,10 +231,25 @@ export default function App() {
       if (!isCurrentGeneration(generation)) return;
       const status = await target.heartbeat();
       if (!isCurrentGeneration(generation)) return;
-      updateOpenRemoteStatus(status, target, generation);
+      if (status) {
+        const wasReconnecting = reconnectStartedAt.current > 0;
+        reconnectStartedAt.current = 0;
+        updateOpenRemoteStatus(status, target, generation);
+        if (wasReconnecting) {
+          setError(null);
+          void reloadAfterReconnect(target, generation);
+        }
+        heartbeatTimer.current = setTimeout(() => void beat(), connectedHeartbeatMs);
+        return;
+      }
+      reconnectStartedAt.current ||= Date.now();
+      if (Date.now() - reconnectStartedAt.current >= currentHeartbeatTimeoutMs()) {
+        await returnHomeAfterConnectionLoss(generation);
+        return;
+      }
+      heartbeatTimer.current = setTimeout(() => void beat(), disconnectedHeartbeatMs);
     };
     void beat();
-    heartbeatTimer.current = setInterval(() => void beat(), 10000);
   }
 
   function clearConnectionState() {
@@ -432,7 +485,7 @@ export default function App() {
     }
   }
 
-  async function connect(next: ConnectionSettings, scannedSessionId?: string, modeOverride?: KeepAwakeMode, skipLocalSave = false) {
+  async function connect(next: ConnectionSettings, scannedSessionId?: string, modeOverride?: KeepAwakeMode, skipLocalSave = false, allowReconnectGrace = false): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
@@ -440,6 +493,7 @@ export default function App() {
       const nextClient = new OpencodeClient(next);
       await nextClient.health();
       const status = await nextClient.openRemoteStatus();
+      if (status?.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
       await saveConnection(next);
       if (!skipLocalSave && !isTunnelConnection(next)) {
         await saveLocalConnection(next);
@@ -472,11 +526,37 @@ export default function App() {
       if (!restored) announceWaiting(nextClient, true, modeOverride ?? keepAwakeMode);
       return true;
     } catch (cause) {
+      if (allowReconnectGrace) return waitForSavedConnection(next, scannedSessionId, modeOverride, skipLocalSave);
       setError(cause instanceof Error ? cause.message : "connect failed");
       return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function waitForSavedConnection(next: ConnectionSettings, scannedSessionId: string | undefined, modeOverride: KeepAwakeMode | undefined, skipLocalSave: boolean): Promise<boolean> {
+    next = { ...next, clientId: next.clientId ?? await loadClientId() };
+    connectionGeneration.current += 1;
+    const generation = connectionGeneration.current;
+    stopHeartbeat();
+    setSettings(next);
+    settingsRef.current = next;
+    setBusy(true);
+    setError(null);
+    const deadline = Date.now() + currentHeartbeatTimeoutMs(null, next);
+
+    while (isCurrentGeneration(generation) && Date.now() < deadline) {
+      const target = new OpencodeClient(next);
+      const status = await target.heartbeat();
+      if (status) {
+        if (status.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
+        return connect(next, scannedSessionId, modeOverride, skipLocalSave, false);
+      }
+      await sleep(disconnectedHeartbeatMs);
+    }
+
+    if (isCurrentGeneration(generation)) await returnHomeAfterConnectionLoss(generation);
+    return false;
   }
 
   async function regenerateOpenRemoteClientId() {

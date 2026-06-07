@@ -153,6 +153,11 @@ const tuiConfig = `{
                     <td>Rotation interval from <code>0</code> to <code>3600</code> seconds. <code>0</code> means generate once on start and never rotate. Ignored when <code>OPENCODE_REMOTE_SECRET</code> is set.</td>
                   </tr>
                   <tr>
+                    <td><code>OPENCODE_REMOTE_HEARTBEAT_TIMEOUT_SECONDS</code></td>
+                    <td><code>30</code></td>
+                    <td>Connected heartbeat timeout from <code>5</code> to <code>300</code> seconds. Also controls how long the app waits for the same proxy port and password during a quick opencode restart.</td>
+                  </tr>
+                  <tr>
                     <td><code>OPENCODE_REMOTE_MAX_CLIENTS</code></td>
                     <td><code>1</code></td>
                     <td>Maximum authenticated OpenRemote clients allowed through the proxy. <code>0</code> allows any number.</td>

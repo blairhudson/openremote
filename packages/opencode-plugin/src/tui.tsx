@@ -6,9 +6,11 @@ import { createElement } from "@opentui/solid";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { networkInterfaces, platform } from "node:os";
+import { networkInterfaces, platform, tmpdir } from "node:os";
+import { join } from "node:path";
 import Bonjour from "bonjour-service";
 import qrcode from "qrcode-terminal";
 import { createSignal } from "solid-js";
@@ -20,9 +22,10 @@ const password = () => process.env.OPENCODE_SERVER_PASSWORD ?? "";
 const remoteUsername = () => process.env.OPENCODE_REMOTE_USERNAME ?? "opencode";
 const proxyBindHost = "0.0.0.0";
 const defaultPasswordRotationSeconds = 30;
-const heartbeatTimeoutMs = 30000;
+const defaultHeartbeatTimeoutSeconds = 30;
 const pluginInstanceId = `or_${randomBytes(8).toString("hex")}`;
 const docsUrl = "https://openremote.blairhudson.com/docs";
+const proxyResumeStatePath = join(tmpdir(), "openremote-proxy-resume.json");
 
 function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
@@ -62,6 +65,16 @@ function passwordRotationSeconds() {
 
 function passwordRotationMs() {
   return passwordRotationSeconds() * 1000;
+}
+
+function heartbeatTimeoutSeconds() {
+  const value = Number(process.env.OPENCODE_REMOTE_HEARTBEAT_TIMEOUT_SECONDS ?? defaultHeartbeatTimeoutSeconds);
+  if (!Number.isFinite(value)) return defaultHeartbeatTimeoutSeconds;
+  return Math.min(300, Math.max(5, Math.floor(value)));
+}
+
+function heartbeatTimeoutMs() {
+  return heartbeatTimeoutSeconds() * 1000;
 }
 
 function shouldRotatePassword() {
@@ -309,6 +322,43 @@ function stopTunnelProxy() {
   setCurrentProxyPort(undefined);
 }
 
+function readProxyResumeState() {
+  try {
+    const state = JSON.parse(readFileSync(proxyResumeStatePath, "utf8"));
+    const port = validPort(state?.port);
+    const password = typeof state?.password === "string" ? state.password : "";
+    const username = typeof state?.username === "string" ? state.username : "";
+    const updatedAt = Number(state?.updatedAt);
+    if (!port || !password || !username || !Number.isFinite(updatedAt)) return undefined;
+    if (Date.now() - updatedAt > heartbeatTimeoutMs()) return undefined;
+    return { port, password, username, updatedAt };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeProxyResumeState() {
+  if (!currentProxyPort || !currentTunnelPassword()) return;
+  try {
+    writeFileSync(proxyResumeStatePath, JSON.stringify({
+      port: currentProxyPort,
+      password: currentTunnelPassword(),
+      username: remoteUsername(),
+      updatedAt: Date.now(),
+      heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
+    }));
+  } catch {
+    // resume is best-effort only
+  }
+}
+
+function applyProxyResumeState() {
+  const state = readProxyResumeState();
+  if (!state) return undefined;
+  if (!remoteSecret()) setCurrentTunnelPassword(state.password);
+  return state;
+}
+
 function activeSessionIds() {
   return visibleSessionId ? [visibleSessionId] : [];
 }
@@ -319,6 +369,7 @@ function pluginStatus() {
     activeSessionIds: activeSessionIds(),
     allowNewSessions: allowNewSessions(),
     connected: remoteConnected() && remoteStatus() === "connected",
+    heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
     lastHeartbeatAt,
   };
 }
@@ -335,6 +386,7 @@ function handlePluginEndpoint(pathname: string, method: string | undefined, outg
   }
   if (pathname === "/openremote/heartbeat" && method === "POST") {
     lastHeartbeatAt = Date.now();
+    writeProxyResumeState();
     if (latestApi) markRemoteConnected(latestApi);
     sendJson(outgoing, 200, pluginStatus());
     return true;
@@ -345,7 +397,7 @@ function handlePluginEndpoint(pathname: string, method: string | undefined, outg
 function startHeartbeatMonitor() {
   if (heartbeatTimer) return;
   heartbeatTimer = setInterval(() => {
-    if (!lastHeartbeatAt || Date.now() - lastHeartbeatAt <= heartbeatTimeoutMs) return;
+    if (!lastHeartbeatAt || Date.now() - lastHeartbeatAt <= heartbeatTimeoutMs()) return;
     lastHeartbeatAt = 0;
     if (latestApi) markRemoteDisconnected(latestApi);
   }, 1000);
@@ -742,6 +794,7 @@ function startTunnelProxy() {
     return Promise.reject(new Error("proxy address unavailable"));
   }
   if (tunnelProxyStarting) return tunnelProxyStarting;
+  const resumeState = applyProxyResumeState();
   ensureProxyPassword();
   setTunnelLog("checking opencode");
   requestRender();
@@ -756,7 +809,7 @@ function startTunnelProxy() {
     const attempt = () => {
       attempts += 1;
       const server = createProxyServer(targetBase);
-      const port = randomProxyPort();
+      const port = attempts === 1 && resumeState?.port ? resumeState.port : randomProxyPort();
       setTunnelLog("binding");
       requestRender();
       let settled = false;
