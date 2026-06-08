@@ -457,15 +457,19 @@ function sendJson(outgoing: Parameters<Parameters<typeof createServer>[0]>[1], s
 
 function acceptAuthenticatedRemote(auth: { ok: true; kind: "current" | "resume"; clientId?: string }) {
   if (!auth.clientId) return;
+  if (auth.clientId === pluginInstanceId) return;
   if (auth.kind === "resume") {
     setCurrentTunnelPassword(resumePassword ?? currentTunnelPassword());
     activeClientId = auth.clientId;
+    remoteClients.clear();
     clearResumeCredential();
   } else if (!activeClientId) {
     activeClientId = auth.clientId;
+    remoteClients.clear();
     clearResumeCredential();
   } else if (activeClientId !== auth.clientId) {
     activeClientId = auth.clientId;
+    remoteClients.clear();
     clearResumeCredential();
   }
   writeProxyResumeState();
@@ -877,6 +881,7 @@ function createProxyServer(targetBase: string) {
     }
     if (!requireOpenRemoteClient(incoming, outgoing)) return;
     const target = new URL(incoming.url ?? "/", targetBase);
+    acceptAuthenticatedRemote(auth);
     if (handlePluginEndpoint(target.pathname, incoming.method, auth, outgoing)) return;
     if (!acceptRemoteClient(incoming, target.pathname)) {
       outgoing.writeHead(429);
