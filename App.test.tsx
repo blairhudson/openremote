@@ -36,6 +36,7 @@ jest.mock("./src/storage", () => ({
   loadRemotePassword: jest.fn(async () => null),
   loadTunnelConnection: jest.fn(async () => null),
   loadTunnelMode: jest.fn(async () => "off"),
+  loadAgentToggleMode: jest.fn(async () => "builtin"),
   regenerateClientId: jest.fn(async () => "or_next"),
   saveActiveSession: jest.fn(async () => undefined),
   saveConnection: jest.fn(async () => undefined),
@@ -44,6 +45,7 @@ jest.mock("./src/storage", () => ({
   saveRemotePassword: jest.fn(async () => undefined),
   saveTunnelConnection: jest.fn(async () => undefined),
   saveTunnelMode: jest.fn(async () => undefined),
+  saveAgentToggleMode: jest.fn(async () => undefined),
 }));
 
 jest.mock("./src/opencode", () => ({

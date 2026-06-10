@@ -12,6 +12,7 @@ export type ConnectionSettings = {
 
 export type KeepAwakeMode = "auto" | "connected" | "off";
 export type TunnelMode = "off" | "cloudflare";
+export type AgentToggleMode = "builtin" | "all";
 
 const key = "openremote.connection";
 const localConnectionKey = "openremote.local-connection";
@@ -19,6 +20,7 @@ const tunnelConnectionKey = "openremote.tunnel-connection";
 const activeSessionKey = "openremote.active-session";
 const keepAwakeModeKey = "openremote.keep-awake-mode";
 const tunnelModeKey = "openremote.tunnel-mode";
+const agentToggleModeKey = "openremote.agent-toggle-mode";
 const remotePasswordKey = "openremote.remote-password";
 const clientIdKey = "openremote.client-id";
 
@@ -113,6 +115,16 @@ export async function loadTunnelMode() {
 
 export async function saveTunnelMode(mode: TunnelMode) {
   await setItem(tunnelModeKey, mode);
+}
+
+export async function loadAgentToggleMode() {
+  const value = await getItem(agentToggleModeKey);
+  if (value === "all") return value;
+  return "builtin";
+}
+
+export async function saveAgentToggleMode(mode: AgentToggleMode) {
+  await setItem(agentToggleModeKey, mode);
 }
 
 export async function loadRemotePassword() {

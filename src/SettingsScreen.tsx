@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import appConfig from "../app.json";
 import { CommandButton, RailPanel, StatusLine, TerminalText } from "./components";
-import type { KeepAwakeMode, TunnelMode } from "./storage";
+import type { AgentToggleMode, KeepAwakeMode, TunnelMode } from "./storage";
 import { colors, spacing } from "./theme";
 
 export type TunnelCapability = "checking" | "ready" | "cloudflared-missing" | "unsupported";
@@ -18,9 +18,11 @@ type Props = {
   remoteAccessInUse: boolean;
   serverUrl: string;
   clientId?: string;
+  agentToggleMode: AgentToggleMode;
   onBack: () => void;
   onChangeKeepAwakeMode: (mode: KeepAwakeMode) => void;
   onChangeTunnelMode: (mode: TunnelMode) => void;
+  onChangeAgentToggleMode: (mode: AgentToggleMode) => void;
   onRegenerateClientId: () => void;
 };
 
@@ -35,7 +37,12 @@ const tunnelOptions: { mode: TunnelMode; label: string; description: string }[] 
   { mode: "cloudflare", label: "cloudflare", description: "start a temporary Cloudflare tunnel on desktop" },
 ];
 
-export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tunnelUrl, tunnelError, tunnelLog, remoteAccessInUse, serverUrl, clientId, onBack, onChangeKeepAwakeMode, onChangeTunnelMode, onRegenerateClientId }: Props) {
+const agentToggleOptions: { mode: AgentToggleMode; label: string; description: string }[] = [
+  { mode: "builtin", label: "Build / Plan", description: "cycle only built-in Build and Plan agents" },
+  { mode: "all", label: "All", description: "cycle every configured OpenCode agent" },
+];
+
+export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tunnelUrl, tunnelError, tunnelLog, remoteAccessInUse, serverUrl, clientId, agentToggleMode, onBack, onChangeKeepAwakeMode, onChangeTunnelMode, onChangeAgentToggleMode, onRegenerateClientId }: Props) {
   const [regenerateOpen, setRegenerateOpen] = useState(false);
 
   function regenerate() {
@@ -54,49 +61,70 @@ export function SettingsScreen({ keepAwakeMode, tunnelMode, tunnelCapability, tu
           <TerminalText bold size={18}>Settings</TerminalText>
         </View>
       </RailPanel>
-      <RailPanel tone="yellow">
-        <View style={styles.section}>
-          <TerminalText bold>Keep awake</TerminalText>
-          <TerminalText tone="muted" size={13}>Controls desktop sleep while OpenRemote is connected.</TerminalText>
-          <View style={styles.options}>
-            {keepAwakeOptions.map((option) => {
-              const selected = option.mode === keepAwakeMode;
-              return (
-                <Pressable key={option.mode} onPress={() => onChangeKeepAwakeMode(option.mode)} style={[styles.option, selected && styles.optionSelected]}>
-                  <View style={styles.optionHeader}>
-                    <TerminalText tone={selected ? "yellow" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
-                  </View>
-                  <TerminalText tone="muted" size={13}>{option.description}</TerminalText>
-                </Pressable>
-              );
-            })}
+      <ScrollView style={styles.scroller} contentContainerStyle={styles.scrollerContent} showsVerticalScrollIndicator={false}>
+        <RailPanel tone="yellow">
+          <View style={styles.section}>
+            <TerminalText bold>Agent toggle</TerminalText>
+            <TerminalText tone="muted" size={13}>Choose what the chat agent button cycles through. Hold for /agents modal.</TerminalText>
+            <View style={styles.options}>
+              {agentToggleOptions.map((option) => {
+                const selected = option.mode === agentToggleMode;
+                return (
+                  <Pressable key={option.mode} onPress={() => onChangeAgentToggleMode(option.mode)} style={[styles.option, selected && styles.optionSelected]}>
+                    <View style={styles.optionHeader}>
+                      <TerminalText tone={selected ? "yellow" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
+                    </View>
+                    <TerminalText tone="muted" size={13}>{option.description}</TerminalText>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-        </View>
-      </RailPanel>
-      <RailPanel tone="cyan">
-        <View style={styles.section}>
-          <TerminalText bold>Remote access</TerminalText>
-          <TerminalText tone="muted" size={13}>Let OpenRemote connect when phone and desktop are on different networks.</TerminalText>
-          {tunnelUrl && <TerminalText tone="muted" size={13}>tunnel: {tunnelUrl}</TerminalText>}
-          {tunnelError ? <TerminalText tone="red" size={13}>{tunnelError}</TerminalText> : null}
-          {tunnelLog ? <TerminalText tone="muted" size={13}>{tunnelLog}</TerminalText> : null}
-          <View style={styles.options}>
-            {tunnelOptions.map((option) => {
-              const selected = option.mode === tunnelMode;
-              const disabledReason = option.mode === "cloudflare" ? cloudflareDisabledReason(tunnelCapability) : offDisabledReason(option.mode, remoteAccessInUse);
-              const disabled = Boolean(disabledReason);
-              return (
-                <Pressable key={option.mode} disabled={disabled} onPress={() => onChangeTunnelMode(option.mode)} style={[styles.option, selected && styles.optionSelected, disabled && styles.optionDisabled]}>
-                  <View style={styles.optionHeader}>
-                    <TerminalText tone={selected ? "yellow" : disabled ? "muted" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
-                  </View>
-                  <TerminalText tone="muted" size={13}>{disabledReason ?? option.description}</TerminalText>
-                </Pressable>
-              );
-            })}
+        </RailPanel>
+        <RailPanel tone="cyan">
+          <View style={styles.section}>
+            <TerminalText bold>Keep awake</TerminalText>
+            <TerminalText tone="muted" size={13}>Controls desktop sleep while OpenRemote is connected.</TerminalText>
+            <View style={styles.options}>
+              {keepAwakeOptions.map((option) => {
+                const selected = option.mode === keepAwakeMode;
+                return (
+                  <Pressable key={option.mode} onPress={() => onChangeKeepAwakeMode(option.mode)} style={[styles.option, selected && styles.optionSelected]}>
+                    <View style={styles.optionHeader}>
+                      <TerminalText tone={selected ? "yellow" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
+                    </View>
+                    <TerminalText tone="muted" size={13}>{option.description}</TerminalText>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-        </View>
-      </RailPanel>
+        </RailPanel>
+        <RailPanel tone="cyan">
+          <View style={styles.section}>
+            <TerminalText bold>Remote access</TerminalText>
+            <TerminalText tone="muted" size={13}>Let OpenRemote connect when phone and desktop are on different networks.</TerminalText>
+            {tunnelUrl && <TerminalText tone="muted" size={13}>tunnel: {tunnelUrl}</TerminalText>}
+            {tunnelError ? <TerminalText tone="red" size={13}>{tunnelError}</TerminalText> : null}
+            {tunnelLog ? <TerminalText tone="muted" size={13}>{tunnelLog}</TerminalText> : null}
+            <View style={styles.options}>
+              {tunnelOptions.map((option) => {
+                const selected = option.mode === tunnelMode;
+                const disabledReason = option.mode === "cloudflare" ? cloudflareDisabledReason(tunnelCapability) : offDisabledReason(option.mode, remoteAccessInUse);
+                const disabled = Boolean(disabledReason);
+                return (
+                  <Pressable key={option.mode} disabled={disabled} onPress={() => onChangeTunnelMode(option.mode)} style={[styles.option, selected && styles.optionSelected, disabled && styles.optionDisabled]}>
+                    <View style={styles.optionHeader}>
+                      <TerminalText tone={selected ? "yellow" : disabled ? "muted" : "text"} bold>{selected ? "[x]" : "[ ]"} {option.label}</TerminalText>
+                    </View>
+                    <TerminalText tone="muted" size={13}>{disabledReason ?? option.description}</TerminalText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </RailPanel>
+      </ScrollView>
       <View style={styles.footer}>
         <Pressable onPress={() => setRegenerateOpen(true)}>
           <TerminalText tone="cyan" size={12}>{clientId ?? "not generated"}</TerminalText>
@@ -164,7 +192,12 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: "center",
     gap: spacing.xs,
-    marginTop: "auto",
+  },
+  scroller: {
+    flex: 1,
+  },
+  scrollerContent: {
+    gap: spacing.md,
   },
   header: {
     alignItems: "center",

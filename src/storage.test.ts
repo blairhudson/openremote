@@ -1,6 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 
-import { loadKeepAwakeMode, loadTunnelMode, saveRemotePassword } from "./storage";
+import { loadAgentToggleMode, loadKeepAwakeMode, loadTunnelMode, saveRemotePassword } from "./storage";
 
 const secureStore = SecureStore as jest.Mocked<typeof SecureStore>;
 
@@ -9,11 +9,12 @@ describe("storage", () => {
     jest.clearAllMocks();
   });
 
-  it("falls back to safe keep-awake and tunnel modes", async () => {
+  it("falls back to safe mode defaults", async () => {
     secureStore.getItemAsync.mockResolvedValue("bad-value");
 
     await expect(loadKeepAwakeMode()).resolves.toBe("auto");
     await expect(loadTunnelMode()).resolves.toBe("off");
+    await expect(loadAgentToggleMode()).resolves.toBe("builtin");
   });
 
   it("deletes remote password when saved empty", async () => {

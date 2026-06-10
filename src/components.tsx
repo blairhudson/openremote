@@ -33,9 +33,9 @@ export function TerminalInput({ inputRef, ...props }: TextInputProps & { inputRe
   return <TextInput ref={inputRef} {...props} placeholderTextColor={colors.dim} selectionColor={colors.yellow} style={[styles.input, props.style]} />;
 }
 
-export function CommandButton({ label, tone = "text", onPress }: { label: string; tone?: Tone; onPress: () => void }) {
+export function CommandButton({ label, tone = "text", onPress, onLongPress }: { label: string; tone?: Tone; onPress: () => void; onLongPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.button}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} style={styles.button}>
       <TerminalText tone={tone} bold>{label}</TerminalText>
     </Pressable>
   );

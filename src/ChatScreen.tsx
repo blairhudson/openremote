@@ -5,6 +5,7 @@ import Markdown from "react-native-markdown-display";
 
 import { CommandButton, RailPanel, StatusLine, TerminalInput, TerminalText } from "./components";
 import type { AgentInfo, AppConfig, Command, FileDiff, MessageBundle, ModelLimits, OpencodeClient, Part, PermissionRequest, ProviderCatalog, QuestionInfo, QuestionRequest, SelectedModel, Session, SessionStatus } from "./opencode";
+import type { AgentToggleMode } from "./storage";
 import { colors, fonts, spacing } from "./theme";
 
 type Props = {
@@ -19,6 +20,7 @@ type Props = {
   serverDirectory?: string;
   status?: SessionStatus;
   allowNewSessions: boolean;
+  agentToggleMode: AgentToggleMode;
   onBack: () => void;
   onSent: () => void;
   onForked: (session: Session) => void;
@@ -70,8 +72,9 @@ const messageActions: Array<{ id: MessageAction; label: string; description: str
 const modalCommandNames = new Set<string>(["agents", "help", "models", "themes", "variants"]);
 const themeNames = ["system", "tokyonight", "catppuccin", "gruvbox", "kanagawa", "nord", "rose-pine", "solarized", "dracula"];
 const variantNames = ["default", "none", "low", "medium", "high", "xhigh"];
+const fallbackAgentNames = ["build", "plan"];
 
-export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, allowNewSessions, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
+export function ChatScreen({ client, session, commands, messages, livePartsByMessage, permissions, questions, modelLimits, serverDirectory, status, allowNewSessions, agentToggleMode, onBack, onSent, onForked, onNewSession, onSessionUpdated, onReplyPermission, onReplyQuestion, onRejectQuestion }: Props) {
   const [prompt, setPrompt] = useState("");
   const [promptInputKey, setPromptInputKey] = useState(0);
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
@@ -166,7 +169,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
 
   useEffect(() => {
     const mode = rawPromptStatus.mode.toLowerCase();
-    if (mode === "build" || mode === "plan") setAgentMode(mode);
+    if (mode) setAgentMode(mode);
   }, [rawPromptStatus.mode]);
 
   useEffect(() => {
@@ -283,13 +286,39 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     await runSlashCommand(command, args);
   }
 
-  function toggleMode() {
+  async function toggleMode() {
+    let cycle = fallbackAgentNames;
+    if (agentToggleMode === "all") {
+      let availableAgents = agents;
+      if (!availableAgents.length) {
+        try {
+          availableAgents = await client.agents();
+          setAgents(availableAgents);
+        } catch {
+          availableAgents = [];
+        }
+      }
+      const names = availableAgents.map((agent) => agent.name).filter(Boolean);
+      if (names.length) cycle = names;
+    }
+
     setAgentMode((mode) => {
-      const next = mode === "build" ? "plan" : "build";
-      void client.cycleDesktopAgent().catch(() => undefined);
+      const currentIndex = cycle.indexOf(mode);
+      const next = cycle[currentIndex >= 0 ? (currentIndex + 1) % cycle.length : 0] ?? fallbackAgentNames[0];
       void client.showToast(`openremote mode: ${titleCase(next)}`).catch(() => undefined);
       return next;
     });
+  }
+
+  async function openAgentsModal() {
+    if (!agents.length) {
+      try {
+        setAgents(await client.agents());
+      } catch {
+        // Modal will still open and show its normal empty state.
+      }
+    }
+    setModalCommand("agents");
   }
 
   async function interrupt() {
@@ -358,7 +387,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
           prompt={prompt}
           promptInputKey={promptInputKey}
           promptFooter={<View style={[styles.composerFooterRow, styles.composerBar]}>
-            <CommandButton label={titleCase(agentMode)} tone={modeTone} onPress={toggleMode} />
+            <CommandButton label={titleCase(agentMode)} tone={modeTone} onPress={toggleMode} onLongPress={() => void openAgentsModal()} />
             <PromptStatusLine status={promptStatus} onModelPress={() => setModalCommand("models")} onVariantPress={() => setModalCommand("variants")} />
             <CommandButton label="clear" tone="muted" onPress={resetPromptInput} />
           </View>}
