@@ -101,7 +101,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   const rawPromptStatus = useMemo(() => getPromptStatus(messages), [messages]);
   const promptStatus = useMemo(() => withSelectionStatus(rawPromptStatus, agentMode, selectedModel, selectedVariant), [agentMode, rawPromptStatus, selectedModel, selectedVariant]);
   const rawContextStatus = useMemo(() => getContextStatus(messages, modelLimits), [messages, modelLimits]);
-  const [contextStatus, setContextStatus] = useState(rawContextStatus);
+  const [contextStatus, setContextStatus] = useState(rawContextStatus.text);
   const modeTone = agentMode === "plan" ? "yellow" : "pink";
   const slashQuery = prompt.startsWith("/") ? prompt.slice(1).split(/\s+/, 1)[0].toLowerCase() : null;
   const slashCommands = useMemo<SlashCommand[]>(() => {
@@ -180,7 +180,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
   }, [status]);
 
   useEffect(() => {
-    if (rawContextStatus !== "0K" || !messages.length) setContextStatus(rawContextStatus);
+    if (rawContextStatus.hasTokens || !messages.length) setContextStatus(rawContextStatus.text);
   }, [messages.length, rawContextStatus]);
 
   useEffect(() => {
@@ -1466,13 +1466,13 @@ function sameModel(selected: SelectedModel | undefined, row: { providerID: strin
 
 function getContextStatus(messages: MessageBundle[], limits: ModelLimits) {
   const latest = [...messages].reverse().find((bundle) => bundle.info?.role === "assistant")?.info;
-  if (!latest || latest.role !== "assistant") return "0K";
+  if (!latest || latest.role !== "assistant") return { text: "0K", hasTokens: false };
 
   const total = latest.tokens.input + latest.tokens.cache.read + latest.tokens.cache.write;
   const formatted = `${(total / 1000).toFixed(total >= 10000 ? 1 : 0)}K`;
   const limit = limits[`${latest.providerID}:${latest.modelID}`] ?? limits[latest.modelID];
-  if (!limit) return formatted;
-  return `${formatted} (${Math.round((total / limit) * 100)}%)`;
+  if (!limit) return { text: formatted, hasTokens: total > 0 };
+  return { text: `${formatted} (${Math.round((total / limit) * 100)}%)`, hasTokens: total > 0 };
 }
 
 function diffLines(diff: FileDiff): DiffLineValue[] {
