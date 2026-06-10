@@ -73,7 +73,7 @@ const pageDescription = "Install OpenRemote on Android from GitHub Releases, use
           </header>
 
           <section class="guide-section">
-            <h2>Choose install path</h2>
+            <h2>Get the OpenRemote app</h2>
             <p>Select the route that matches your device and how much you want to build yourself.</p>
             <div class="install-tabs" aria-label="Installation options">
               <input id="install-app-store-ios" class="install-radio" type="radio" name="install-path" data-install-hash="app-store-ios" checked />
@@ -82,7 +82,7 @@ const pageDescription = "Install OpenRemote on Android from GitHub Releases, use
               <input id="install-expo-ios" class="install-radio" type="radio" name="install-path" data-install-hash="expo-ios" />
               <input id="install-expo-android" class="install-radio" type="radio" name="install-path" data-install-hash="expo-android" />
 
-              <div class="install-tab-list" role="tablist" aria-label="Choose install path">
+              <div class="install-tab-list" role="tablist" aria-label="Get the OpenRemote app">
                 <label class="install-tab install-tab-app-store-ios" for="install-app-store-ios" role="tab">App Store (iOS)</label>
                 <label class="install-tab install-tab-google-play-android" for="install-google-play-android" role="tab">Google Play (Android)</label>
                 <label class="install-tab install-tab-apk-android" for="install-apk-android" role="tab">APK (Android)</label>
@@ -148,6 +148,31 @@ const pageDescription = "Install OpenRemote on Android from GitHub Releases, use
               </article>
 
             </div>
+          </section>
+
+          <section class="guide-section">
+            <h2 id="set-up-opencode">Run the OpenRemote CLI setup</h2>
+            <p>Run the setup wizard to add OpenRemote to your OpenCode config. It asks before writing files and can also initialize OpenRemote Gateway config without starting the gateway or opening the gateway TUI.</p>
+            <div class="install-tabs cli-setup-tabs" aria-label="OpenRemote CLI setup options">
+              <input id="cli-setup-npx" class="install-radio" type="radio" name="cli-setup" data-install-hash="cli-npx" checked />
+              <input id="cli-setup-bunx" class="install-radio" type="radio" name="cli-setup" data-install-hash="cli-bunx" />
+
+              <div class="install-tab-list cli-tab-list" role="tablist" aria-label="Choose CLI setup runtime">
+                <label class="install-tab cli-tab-npx" for="cli-setup-npx" role="tab">npx</label>
+                <label class="install-tab cli-tab-bunx" for="cli-setup-bunx" role="tab">bunx</label>
+              </div>
+
+              <article class="install-panel cli-panel-npx" role="tabpanel">
+                <h3>npx</h3>
+                <pre><code>npx opencode-openremote@latest</code></pre>
+              </article>
+
+              <article class="install-panel cli-panel-bunx" role="tabpanel">
+                <h3>bunx</h3>
+                <pre><code>bunx opencode-openremote@latest</code></pre>
+              </article>
+            </div>
+            <p>After setup, <code>oo</code> is available as the short command alias, for example <code>oo gateway --help</code>. Restart opencode for plugin config changes to take effect.</p>
           </section>
 
           <section class="guide-section">

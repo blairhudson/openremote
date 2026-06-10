@@ -198,6 +198,12 @@ export default function App() {
     return Math.max(5, seconds) * 1000;
   }
 
+  function currentReconnectGraceMs(status = openRemoteStatusRef.current, saved = settingsRef.current) {
+    const heartbeatMs = currentHeartbeatTimeoutMs(status, saved);
+    const resumeSeconds = status?.resumeSeconds ?? saved?.resumeSeconds ?? 0;
+    return Math.max(heartbeatMs, Math.max(0, resumeSeconds) * 1000);
+  }
+
   async function returnHomeAfterConnectionLoss(generation: number) {
     if (!isCurrentGeneration(generation)) return;
     connectionGeneration.current += 1;
@@ -243,7 +249,7 @@ export default function App() {
         return;
       }
       reconnectStartedAt.current ||= Date.now();
-      if (Date.now() - reconnectStartedAt.current >= currentHeartbeatTimeoutMs()) {
+      if (Date.now() - reconnectStartedAt.current >= currentReconnectGraceMs()) {
         await returnHomeAfterConnectionLoss(generation);
         return;
       }
@@ -494,6 +500,7 @@ export default function App() {
       await nextClient.health();
       const status = await nextClient.openRemoteStatus();
       if (status?.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
+      if (status?.resumeSeconds) next = { ...next, resumeSeconds: status.resumeSeconds };
       await saveConnection(next);
       if (!skipLocalSave && !isTunnelConnection(next)) {
         await saveLocalConnection(next);
@@ -543,13 +550,14 @@ export default function App() {
     settingsRef.current = next;
     setBusy(true);
     setError(null);
-    const deadline = Date.now() + currentHeartbeatTimeoutMs(null, next);
+    const deadline = Date.now() + currentReconnectGraceMs(null, next);
 
     while (isCurrentGeneration(generation) && Date.now() < deadline) {
       const target = new OpencodeClient(next);
       const status = await target.heartbeat();
       if (status) {
         if (status.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
+        if (status.resumeSeconds) next = { ...next, resumeSeconds: status.resumeSeconds };
         return connect(next, scannedSessionId, modeOverride, skipLocalSave, false);
       }
       await sleep(disconnectedHeartbeatMs);
@@ -734,14 +742,21 @@ export default function App() {
   }
 
   async function disconnect() {
+    const previousClient = client;
     connectionGeneration.current += 1;
     stopHeartbeat();
-    if (client) await announceDisconnected(client);
-    await clearConnection();
-    await clearActiveSession();
+    tunnelSwitchPending.current = false;
+    tunnelRestorePending.current = false;
+    await Promise.allSettled([clearConnection(), clearActiveSession()]);
+    settingsRef.current = null;
+    activeRef.current = null;
+    activeSessionIdRef.current = undefined;
     setSettings(null);
     setScreen("sessions");
     clearConnectionState();
+    setBusy(false);
+    setError(null);
+    if (previousClient) void announceDisconnected(previousClient);
   }
 
   async function changeKeepAwakeMode(mode: KeepAwakeMode) {

@@ -14,6 +14,14 @@ const tuiConfig = `{
   "$schema": "https://opencode.ai/tui.json",
   "plugin": ["opencode-openremote/tui"]
 }`;
+const sourceOpencodeConfig = `{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["/path/to/openremote/packages/opencode-plugin/src/index.ts"]
+}`;
+const sourceTuiConfig = `{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["/path/to/openremote/packages/opencode-plugin/src/tui.tsx"]
+}`;
 ---
 
 <!doctype html>
@@ -90,38 +98,29 @@ const tuiConfig = `{
 
           <section class="guide-section">
             <h2>Setup</h2>
-            <p>Use the setup wizard or add the plugin entries manually.</p>
-            <div class="install-tabs plugin-setup-tabs" aria-label="Plugin setup options">
-              <input id="plugin-npx" class="install-radio" type="radio" name="plugin-setup" data-plugin-hash="npx" checked />
-              <input id="plugin-manual" class="install-radio" type="radio" name="plugin-setup" data-plugin-hash="manual" />
-
-              <div class="install-tab-list plugin-tab-list" role="tablist" aria-label="Choose plugin setup path">
-                <label class="install-tab plugin-tab-npx" for="plugin-npx" role="tab">npx installer</label>
-                <label class="install-tab plugin-tab-manual" for="plugin-manual" role="tab">manual config</label>
-              </div>
-
-              <article class="install-panel plugin-panel-npx" role="tabpanel">
-                <h3>npx installer</h3>
-                <p>Run the setup wizard to add OpenRemote to your OpenCode config. It asks before writing files.</p>
-                <pre><code>npx opencode-openremote@latest</code></pre>
-                <p>Restart opencode for changes to take effect.</p>
-              </article>
-
-              <article class="install-panel plugin-panel-manual" role="tabpanel">
-                <h3>manual config</h3>
-                <p>Add the server plugin to <code>opencode.json</code>:</p>
-                <pre><code>{opencodeConfig}</code></pre>
-                <p>Add the TUI sidebar plugin to <code>tui.json</code>:</p>
-                <pre><code>{tuiConfig}</code></pre>
-                <p>Restart opencode for changes to take effect.</p>
-              </article>
-            </div>
+            <p>Use the setup wizard from <a class="inline-link" href="/docs/installation#set-up-opencode">Installation</a>, or add the plugin entries manually.</p>
+            <p>Add the server plugin to <code>opencode.json</code>:</p>
+            <pre><code>{opencodeConfig}</code></pre>
+            <p>Add the TUI sidebar plugin to <code>tui.json</code>:</p>
+            <pre><code>{tuiConfig}</code></pre>
+            <p>Restart opencode for changes to take effect.</p>
           </section>
 
           <section class="guide-section">
             <h2>Connect</h2>
             <p>Restart OpenCode, open the OpenRemote sidebar QR code, then scan it from the app.</p>
             <p><a class="inline-link" href="/docs/getting-started">Open the getting started guide</a></p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Run from source</h2>
+            <p>For unreleased plugin features, clone the repository and point your project-level OpenCode config at the local plugin files.</p>
+            <pre><code>git clone https://github.com/blairhudson/openremote.git</code></pre>
+            <p>In your OpenCode project, add <code>opencode.json</code>:</p>
+            <pre><code>{sourceOpencodeConfig}</code></pre>
+            <p>For the TUI sidebar, add <code>tui.json</code>:</p>
+            <pre><code>{sourceTuiConfig}</code></pre>
+            <p>Replace <code>/path/to/openremote</code> with the cloned repository path, then restart opencode.</p>
           </section>
 
           <section class="guide-section">

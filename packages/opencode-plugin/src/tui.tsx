@@ -9,7 +9,7 @@ import { Resolver } from "node:dns/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { networkInterfaces, platform, tmpdir } from "node:os";
+import { homedir, networkInterfaces, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import Bonjour from "bonjour-service";
 import qrcode from "qrcode-terminal";
@@ -27,6 +27,8 @@ const defaultResumeSeconds = 28800;
 const pluginInstanceId = `or_${randomBytes(8).toString("hex")}`;
 const docsUrl = "https://openremote.blairhudson.com/docs";
 const proxyResumeStatePath = join(tmpdir(), "openremote-proxy-resume.json");
+const gatewayConfigPath = join(homedir(), ".config", "openremote", "gateway.json");
+const gatewayStatePath = join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "openremote", "gateway.json");
 
 function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
@@ -60,6 +62,11 @@ function maxClientUserAgentEnabled() {
 
 function remoteResumeEnabled() {
   return remoteFlag("OPENCODE_REMOTE_RESUME", true);
+}
+
+function gatewayMode() {
+  const value = process.env.OPENCODE_REMOTE_GATEWAY ?? "auto";
+  return value === "required" || value === "off" ? value : "auto";
 }
 
 function passwordRotationSeconds() {
@@ -226,6 +233,7 @@ let bonjour: Bonjour | undefined;
 let mdnsService: { stop: (callback?: () => void) => void } | undefined;
 let mdnsName = "";
 let tunnelStartPending = false;
+let gatewayTunnelStartPending = false;
 let currentProxyPort: number | undefined;
 let passwordRotation: ReturnType<typeof setInterval> | undefined;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -241,6 +249,7 @@ let cleanupInstalled = false;
 let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
+let gatewayPollTimer: ReturnType<typeof setInterval> | undefined;
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
 const registeredSlotApis = new WeakSet<object>();
@@ -257,9 +266,28 @@ const [tunnelProxyPort, setTunnelProxyPort] = createSignal<number | undefined>()
 const [currentTunnelPassword, setCurrentTunnelPassword] = createSignal("");
 const [qrVersion, setQrVersion] = createSignal(0);
 const [qrSecondsRemaining, setQrSecondsRemaining] = createSignal(passwordRotationSeconds());
+const [gatewayState, setGatewayState] = createSignal<"off" | "checking" | "registered" | "unavailable" | "required">("off");
+const [gatewayQrUrl, setGatewayQrUrl] = createSignal("");
+const [gatewayRemoteAccess, setGatewayRemoteAccess] = createSignal<"on" | "off">("off");
+const [gatewayConnected, setGatewayConnected] = createSignal(false);
+const [gatewayKeepAwakeEnabled, setGatewayKeepAwakeEnabled] = createSignal(false);
+const [gatewayKeepAwakeMode, setGatewayKeepAwakeMode] = createSignal<"auto" | "connected" | "off">("auto");
+const [gatewayQrSecondsRemaining, setGatewayQrSecondsRemaining] = createSignal(passwordRotationSeconds());
 
 function requestRender() {
   latestApi?.renderer.requestRender();
+}
+
+function updateGatewayConnected(connected: boolean) {
+  setGatewayConnected(connected);
+  stopKeepAwake();
+  setKeepAwakeEnabled(false);
+}
+
+function updateGatewayKeepAwake(status: unknown) {
+  const keepAwake = (status as { keepAwake?: { enabled?: unknown; mode?: unknown } })?.keepAwake;
+  setGatewayKeepAwakeEnabled(keepAwake?.enabled === true);
+  setGatewayKeepAwakeMode(keepAwake?.mode === "off" || keepAwake?.mode === "connected" || keepAwake?.mode === "auto" ? keepAwake.mode : "auto");
 }
 
 function qrLines(value: string) {
@@ -269,6 +297,222 @@ function qrLines(value: string) {
     while (cachedQrLines.at(-1) === "") cachedQrLines.pop();
   }
   return cachedQrLines;
+}
+
+function invertQrLine(line: string) {
+  return line.replace(/[█ ▄▀]/g, (char) => {
+    if (char === "█") return " ";
+    if (char === " ") return "█";
+    if (char === "▄") return "▀";
+    return "▄";
+  });
+}
+
+function invertedQrLines(lines: string[]) {
+  const inverted = lines.map(invertQrLine);
+  const isQuietEdge = (line: string | undefined) => !line || line.trim() === "" || line.replace(/[▀▄█ ]/g, "").length === 0 && new Set(line).size === 1;
+  while (isQuietEdge(inverted[0])) inverted.shift();
+  while (isQuietEdge(inverted.at(-1))) inverted.pop();
+  return inverted;
+}
+
+function readJsonFile(file: string) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function gatewayRuntimeState() {
+  const state = readJsonFile(gatewayStatePath);
+  if (!state || typeof state !== "object") return undefined;
+  if (!Number.isInteger(state.appPort) || typeof state.adminToken !== "string") return undefined;
+  return state as { appPort: number; adminToken: string };
+}
+
+function gatewayConfigured() {
+  return !!readJsonFile(gatewayConfigPath);
+}
+
+async function gatewayAdminFetch(pathname: string, init: RequestInit = {}) {
+  const state = gatewayRuntimeState();
+  if (!state) throw new Error("gateway not running");
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${state.adminToken}`);
+  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, { ...init, headers, signal: AbortSignal.timeout(1500) });
+  if (!response.ok) throw new Error(`gateway ${pathname} failed: ${response.status}`);
+  return response.json();
+}
+
+async function gatewayAdminPost(pathname: string) {
+  return gatewayAdminFetch(pathname, { method: "POST" });
+}
+
+async function startConfiguredGateway() {
+  if (!gatewayConfigured()) return false;
+  const child = spawn("npx", ["opencode-openremote", "gateway", "start"], { detached: true, stdio: "ignore" });
+  child.unref?.();
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      await gatewayAdminFetch("/openremote/gateway/status");
+      return true;
+    } catch {
+      // keep waiting
+    }
+  }
+  return false;
+}
+
+function launchCommand() {
+  const args = process.argv.slice(2).filter((arg) => arg !== "--hostname=127.0.0.1");
+  return ["opencode", ...args];
+}
+
+async function registerGatewayInstance() {
+  const targetBaseUrl = await resolveLocalTunnelTarget();
+  const body = {
+    instanceId: pluginInstanceId,
+    cwd: process.cwd(),
+    workspaceLabel: process.cwd().split(/[\\/]/).pop() || process.cwd(),
+    targetBaseUrl,
+    activeSessionIds: activeSessionIds(),
+    pid: process.pid,
+    launchCommand: launchCommand(),
+    upstreamAuthorization: authHeaders().authorization,
+  };
+  const status = await gatewayAdminFetch("/openremote/gateway/register", { method: "POST", body: JSON.stringify(body) });
+  setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
+  updateGatewayConnected(status.remoteAccess?.connected === true);
+  updateGatewayKeepAwake(status);
+  setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
+  setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
+  setGatewayState("registered");
+  requestRender();
+}
+
+function sessionUrl(baseUrl: string, sessionId: string | undefined) {
+  if (!sessionId) return baseUrl;
+  const url = new URL(baseUrl);
+  url.pathname = `/s/${encodeURIComponent(sessionId)}`;
+  return url.toString();
+}
+
+async function refreshGatewayStatus() {
+  const status = await gatewayAdminFetch("/openremote/gateway/status");
+  setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
+  updateGatewayConnected(status.remoteAccess?.connected === true);
+  updateGatewayKeepAwake(status);
+  setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
+  setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
+  setGatewayState("registered");
+  requestRender();
+}
+
+function gatewayTunnelReadyUrl(status: unknown) {
+  const remote = (status as { remoteAccess?: { tunnelAppUrl?: unknown; tunnel?: { status?: unknown } } })?.remoteAccess;
+  return remote?.tunnel?.status === "ready" && typeof remote.tunnelAppUrl === "string" ? remote.tunnelAppUrl : "";
+}
+
+function passwordFromUrl(value: string) {
+  try {
+    return new URL(value).password;
+  } catch {
+    return "";
+  }
+}
+
+function urlWithoutAuth(value: string) {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return value;
+  }
+}
+
+async function runGatewayTunnelCommand(api: TuiPluginApi, mode: "off" | "cloudflare") {
+  if (gatewayState() !== "registered") return false;
+  if (mode === "off") {
+    gatewayTunnelStartPending = false;
+    await gatewayAdminPost("/openremote/gateway/remote/off");
+    await refreshGatewayStatus();
+    emitTunnelMessage(api, "openremote tunnel status off");
+    api.renderer.requestRender();
+    return true;
+  }
+
+  if (gatewayTunnelStartPending) return true;
+  gatewayTunnelStartPending = true;
+  emitTunnelMessage(api, "openremote tunnel status starting");
+  let status: unknown;
+  try {
+    status = await gatewayAdminPost("/openremote/gateway/remote/cloudflare");
+  } catch {
+    gatewayTunnelStartPending = false;
+    emitTunnelMessage(api, "openremote tunnel capability cloudflare=cloudflared-missing");
+    emitTunnelMessage(api, "openremote tunnel status error reason=cloudflared%20missing");
+    api.renderer.requestRender();
+    return true;
+  }
+  setGatewayRemoteAccess((status as { remoteAccess?: { enabled?: boolean } })?.remoteAccess?.enabled ? "on" : "off");
+  updateGatewayConnected((status as { remoteAccess?: { connected?: boolean } })?.remoteAccess?.connected === true);
+  updateGatewayKeepAwake(status);
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    const url = gatewayTunnelReadyUrl(status);
+    if (url) {
+      setGatewayQrUrl(url);
+      emitTunnelMessage(api, `openremote tunnel status ready url=${urlWithoutAuth(url)} password=${passwordFromUrl(url)}`);
+      api.renderer.requestRender();
+      gatewayTunnelStartPending = false;
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      status = await gatewayAdminFetch("/openremote/gateway/status");
+      setGatewayRemoteAccess((status as { remoteAccess?: { enabled?: boolean } })?.remoteAccess?.enabled ? "on" : "off");
+      updateGatewayConnected((status as { remoteAccess?: { connected?: boolean } })?.remoteAccess?.connected === true);
+      updateGatewayKeepAwake(status);
+      requestRender();
+    } catch {
+      // keep waiting; gateway may be restarting tunnel state
+    }
+  }
+  emitTunnelMessage(api, "openremote tunnel status error reason=gateway%20tunnel%20not%20ready");
+  api.renderer.requestRender();
+  gatewayTunnelStartPending = false;
+  return true;
+}
+
+async function initGateway() {
+  if (gatewayMode() === "off") return false;
+  setGatewayState("checking");
+  requestRender();
+  try {
+    await gatewayAdminFetch("/openremote/gateway/status");
+  } catch {
+    if (!await startConfiguredGateway()) {
+      setGatewayState(gatewayMode() === "required" ? "required" : "unavailable");
+      requestRender();
+      return gatewayMode() === "required";
+    }
+  }
+  try {
+    await registerGatewayInstance();
+    if (!gatewayPollTimer) {
+      gatewayPollTimer = setInterval(() => void registerGatewayInstance().catch(() => void refreshGatewayStatus().catch(() => undefined)), 1000);
+      gatewayPollTimer.unref?.();
+    }
+    return true;
+  } catch {
+    setGatewayState(gatewayMode() === "required" ? "required" : "unavailable");
+    requestRender();
+    return gatewayMode() === "required";
+  }
 }
 
 function startKeepAwake() {
@@ -1144,6 +1388,11 @@ function wantedKeepAwake(status = remoteStatus(), connected = remoteConnected())
 }
 
 function applyKeepAwake(status = remoteStatus()) {
+  if (gatewayState() === "registered") {
+    stopKeepAwake();
+    setKeepAwakeEnabled(false);
+    return;
+  }
   setKeepAwake(wantedKeepAwake(status));
 }
 
@@ -1263,11 +1512,16 @@ function installEventHandlers(api: TuiPluginApi) {
     const tunnelCommand = openRemoteTunnelCommand(event);
     if (tunnelCommand === "probe") void probeTunnel(currentApi);
     if (tunnelCommand === "off") {
-      stopTunnel();
-      emitTunnelMessage(currentApi, "openremote tunnel status off");
-      currentApi.renderer.requestRender();
+      void runGatewayTunnelCommand(currentApi, "off").then((handled) => {
+        if (handled) return;
+        stopTunnel();
+        emitTunnelMessage(currentApi, "openremote tunnel status off");
+        currentApi.renderer.requestRender();
+      });
     }
-    if (tunnelCommand === "cloudflare") void startCloudflareTunnel(currentApi);
+    if (tunnelCommand === "cloudflare") void runGatewayTunnelCommand(currentApi, "cloudflare").then((handled) => {
+      if (!handled) void startCloudflareTunnel(currentApi);
+    });
   });
   api.event.on("tui.command.execute", (event) => {
     const currentApi = latestApi;
@@ -1281,11 +1535,16 @@ function installEventHandlers(api: TuiPluginApi) {
     if (command === "openremote.keepawake.off") setKeepAwakeModeCommand(currentApi, "off");
     if (command === "openremote.tunnel.probe") void probeTunnel(currentApi);
     if (command === "openremote.tunnel.off") {
-      stopTunnel();
-      emitTunnelMessage(currentApi, "openremote tunnel status off");
-      currentApi.renderer.requestRender();
+      void runGatewayTunnelCommand(currentApi, "off").then((handled) => {
+        if (handled) return;
+        stopTunnel();
+        emitTunnelMessage(currentApi, "openremote tunnel status off");
+        currentApi.renderer.requestRender();
+      });
     }
-    if (command === "openremote.tunnel.cloudflare") void startCloudflareTunnel(currentApi);
+    if (command === "openremote.tunnel.cloudflare") void runGatewayTunnelCommand(currentApi, "cloudflare").then((handled) => {
+      if (!handled) void startCloudflareTunnel(currentApi);
+    });
     const mode = openRemoteKeepAwakeMode(event);
     if (mode) setKeepAwakeModeCommand(currentApi, mode);
   });
@@ -1376,15 +1635,71 @@ function installCommands(api: TuiPluginApi) {
 
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
   visibleSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
+  const gatewayRegistered = () => gatewayState() === "registered";
+  const effectiveConnected = () => gatewayConnected() || remoteConnected();
   return (
     <box width="100%" flexDirection="column" marginTop={1}>
       <box width="100%" flexDirection="row" justifyContent="space-between">
         <text fg={props.theme.text}>
           <b>OpenRemote</b>
         </text>
-        <text fg={remoteStatus() === "connected" ? props.theme.accent : props.theme.textMuted}>{remoteConnected() ? remoteStatus() : "disconnected"}</text>
+        <text fg={effectiveConnected() ? props.theme.accent : props.theme.textMuted}>{effectiveConnected() ? "connected" : "disconnected"}</text>
       </box>
-      {!remoteConnected() && (
+      {gatewayRegistered() && (
+        <box width="100%" flexDirection="column" marginTop={1}>
+          {!gatewayConnected() && !remoteConnected() && (
+            <box width="100%" flexDirection="column">
+              {(() => {
+                qrVersion();
+                const qrUrl = sessionUrl(gatewayQrUrl(), props.sessionId ?? sessionIdFromRoute(props.api));
+                const lines = qrUrl ? invertedQrLines(qrLines(qrUrl)) : ["waiting for gateway endpoint"];
+                const qrWidth = Math.max(...lines.map((line) => line.length), 0);
+                return (
+                  <box width="100%" flexDirection="column">
+                    <box width="100%" flexDirection="column" alignItems="center">
+                      <text fg={props.theme.textMuted}>{qrUrl ? `Scan with OpenRemote${gatewayQrSecondsRemaining() > 0 ? ` (${gatewayQrSecondsRemaining()}s)` : ""}` : "OpenRemote Gateway"}</text>
+                    </box>
+                    <box width="100%" flexDirection="column" alignItems="center">
+                      <box width={qrWidth} flexDirection="column">
+                        {lines.map((line, index) => (
+                          <text key={`gateway-${index}-${line}`} fg={props.theme.text}>{line}</text>
+                        ))}
+                      </box>
+                    </box>
+                  </box>
+                );
+              })()}
+            </box>
+          )}
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>Gateway</text>
+            <text fg={props.theme.accent}>{gatewayConnected() || remoteConnected() ? "connected" : "running"}</text>
+          </box>
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>Remote Access</text>
+            <text fg={gatewayRemoteAccess() === "on" ? props.theme.accent : props.theme.textMuted}>{gatewayRemoteAccess()}</text>
+          </box>
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>Keep Awake</text>
+            <text fg={gatewayKeepAwakeEnabled() ? props.theme.accent : props.theme.textMuted}>{gatewayKeepAwakeEnabled() ? "on" : gatewayKeepAwakeMode()}</text>
+          </box>
+        </box>
+      )}
+      {gatewayState() === "required" && (
+        <box width="100%" flexDirection="column" marginTop={1} alignItems="center">
+          <text fg={props.theme.textMuted}>Gateway required</text>
+          <text fg={props.theme.accent}>npx opencode-openremote gateway</text>
+        </box>
+      )}
+      {gatewayState() === "unavailable" && gatewayMode() === "auto" && (
+        <box width="100%" flexDirection="column" marginTop={1}>
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>Gateway</text>
+            <text fg={props.theme.textMuted}>not configured</text>
+          </box>
+        </box>
+      )}
+      {gatewayState() !== "registered" && gatewayState() !== "required" && !remoteConnected() && (
         <box width="100%" flexDirection="column" marginTop={1}>
           {(() => {
             const proxyPort = currentProxyPort ?? tunnelProxyPort() ?? proxyLogPort();
@@ -1422,8 +1737,8 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
           })()}
         </box>
       )}
-      {remoteConnected() && (
-        <box width="100%" flexDirection="column" marginTop={1}>
+      {remoteConnected() && !gatewayRegistered() && (
+        <box width="100%" flexDirection="column" marginTop={gatewayState() === "registered" ? 0 : 1}>
           <box width="100%" flexDirection="row" justifyContent="space-between">
             <text fg={props.theme.text}>Local Access</text>
             <text fg={props.theme.accent}>{remoteDevice()} connected</text>
@@ -1471,9 +1786,12 @@ export const tui: TuiPlugin = async (api) => {
   installEventHandlers(api);
   installCommands(api);
   installSlots(api);
-  void startTunnelProxy().then(() => api.renderer.requestRender()).catch((error) => {
-    setTunnelLog(error instanceof Error && error.message === upstreamUnavailableMessage ? upstreamUnavailableMessage : "failed");
-    api.renderer.requestRender();
+  void initGateway().then((handledByGateway) => {
+    if (handledByGateway) return;
+    void startTunnelProxy().then(() => api.renderer.requestRender()).catch((error) => {
+      setTunnelLog(error instanceof Error && error.message === upstreamUnavailableMessage ? upstreamUnavailableMessage : "failed");
+      api.renderer.requestRender();
+    });
   });
 };
 

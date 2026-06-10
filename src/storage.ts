@@ -7,6 +7,7 @@ export type ConnectionSettings = {
   password: string;
   clientId?: string;
   heartbeatTimeoutSeconds?: number;
+  resumeSeconds?: number;
 };
 
 export type KeepAwakeMode = "auto" | "connected" | "off";

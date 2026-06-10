@@ -12,6 +12,7 @@ export const docsNavItems: (DocsNavLink | DocsNavGroup)[] = [
   { href: "/docs/installation", label: "Installation" },
   { href: "/docs/getting-started", label: "Getting started" },
   { href: "/docs/plugin", label: "OpenCode Plugin" },
+  { href: "/docs/gateway", label: "OpenRemote Gateway" },
   { href: "/docs/remote-tunnels", label: "Remote tunnels" },
   {
     label: "Self-hosting",

@@ -230,10 +230,11 @@ function safeDecode(value: string) {
   }
 }
 
-function parseConnectionUrl(data: string) {
+export function parseConnectionUrl(data: string) {
   const url = new URL(data);
+  if (!/^https?:$/.test(url.protocol)) throw new Error("unsupported protocol");
   const sessionId = sessionIdFromPath(url.pathname);
-  if (!sessionId) throw new Error("missing session");
+  if (!sessionId && (!url.username || !url.password)) throw new Error("missing credentials");
   return { url, sessionId };
 }
 

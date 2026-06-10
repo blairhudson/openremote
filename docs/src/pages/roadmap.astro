@@ -66,6 +66,11 @@ const timelines = [
 const features = [
   {
     status: "In progress",
+    title: "OpenRemote Gateway",
+    text: "Background gateway service for shared remote access, multi-instance routing, workspace reopen, and gateway control UI.",
+  },
+  {
+    status: "In progress",
     title: "Responsive device support",
     text: "Improve UX across a larger range of device sizes, especially small screens.",
   },
@@ -89,6 +94,51 @@ const features = [
     text: "Dedicated interface for LLM questions with headers, option lists, custom answers, and multi-question navigation before submitting all answers.",
     commitHref: "https://github.com/blairhudson/openremote/commit/7620d39",
     commitRef: "7620d39",
+  },
+  {
+    status: "Planning",
+    title: "Remote Pairing",
+    text: "Pair the mobile app with a gateway once so trusted devices can reconnect without scanning a new QR code each time.",
+  },
+  {
+    status: "Planning",
+    title: "Remote Launch",
+    text: "Start OpenCode from OpenRemote on a recent gateway workspace, even when that workspace is not currently running.",
+  },
+  {
+    status: "Planning",
+    title: "Port Forwarding",
+    text: "Forward ports for services started by OpenCode through the gateway so the app can open local dev servers safely.",
+  },
+  {
+    status: "Planning",
+    title: "Smart Reconnect",
+    text: "Automatically choose the best available route back to OpenCode: paired gateway, local gateway, tunnel gateway, or direct plugin fallback.",
+  },
+  {
+    status: "Backlog",
+    title: "Trusted Networks",
+    text: "Let the gateway enable local remote access only on approved networks and tighten access everywhere else.",
+  },
+  {
+    status: "Planning",
+    title: "Question Inbox",
+    text: "Collect pending OpenCode questions in the app so users can answer them after reconnecting.",
+  },
+  {
+    status: "Planning",
+    title: "Push Notifications",
+    text: "Notify the app when OpenCode needs input, finishes work, or hits an important gateway event.",
+  },
+  {
+    status: "Backlog",
+    title: "Review Mode",
+    text: "Show dedicated app review screens for patches, diffs, and proposed changes before approving follow-up actions.",
+  },
+  {
+    status: "Backlog",
+    title: "Wake to Code",
+    text: "Wake a desktop with Wake-on-LAN, then reconnect OpenRemote through a known gateway workspace.",
   },
   {
     status: "Planning",

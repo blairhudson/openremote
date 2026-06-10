@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "opencode-openremote": "bin/cli.mjs"
+    "opencode-openremote": "bin/cli.mjs",
+    "oo": "bin/cli.mjs"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -44,6 +45,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
+    "@opentui/core": "^0.2.12",
     "@opentui/solid": "^0.2.12",
     "bonjour-service": "^1.4.0",
     "qrcode-terminal": "^0.12.0",

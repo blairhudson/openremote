@@ -1,5 +1,12 @@
 import "react-native-gesture-handler/jestSetup";
 
+if (typeof window !== "undefined" && typeof window.dispatchEvent !== "function") {
+  window.dispatchEvent = jest.fn((event) => {
+    if (event && "error" in event) throw event.error;
+    return true;
+  });
+}
+
 jest.mock("@opencode-ai/sdk/client", () => ({
   createOpencodeClient: jest.fn(() => ({})),
 }), { virtual: true });

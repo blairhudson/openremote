@@ -647,6 +647,17 @@ section[id] {
   padding-top: 80px;
 }
 
+.docs-content :where(p, li, td) > code {
+  display: inline-block;
+  border: 1px solid var(--soft-line);
+  background: #101213;
+  color: var(--green);
+  font-size: 0.9em;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 0.12rem 0.34rem;
+}
+
 .docs-header {
   padding-bottom: 2rem;
   border-bottom: 1px solid var(--line);
@@ -1362,7 +1373,9 @@ section[id] {
 #install-expo-android:checked ~ .install-tab-list .install-tab-expo-android,
 #install-apk-android:checked ~ .install-tab-list .install-tab-apk-android,
 #install-app-store-ios:checked ~ .install-tab-list .install-tab-app-store-ios,
-#install-google-play-android:checked ~ .install-tab-list .install-tab-google-play-android {
+#install-google-play-android:checked ~ .install-tab-list .install-tab-google-play-android,
+#cli-setup-npx:checked ~ .install-tab-list .cli-tab-npx,
+#cli-setup-bunx:checked ~ .install-tab-list .cli-tab-bunx {
   border-color: var(--line);
   background: var(--panel-2);
   color: var(--accent);
@@ -1389,11 +1402,14 @@ section[id] {
 #install-expo-android:checked ~ .install-panel-expo-android,
 #install-apk-android:checked ~ .install-panel-apk-android,
 #install-app-store-ios:checked ~ .install-panel-app-store-ios,
-#install-google-play-android:checked ~ .install-panel-google-play-android {
+#install-google-play-android:checked ~ .install-panel-google-play-android,
+#cli-setup-npx:checked ~ .cli-panel-npx,
+#cli-setup-bunx:checked ~ .cli-panel-bunx {
   display: block;
 }
 
-.plugin-tab-list {
+.plugin-tab-list,
+.cli-tab-list {
   grid-template-columns: repeat(2, minmax(9rem, 1fr));
 }
 

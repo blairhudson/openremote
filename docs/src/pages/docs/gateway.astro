@@ -1,0 +1,266 @@
+---
+import "../../styles/global.css";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote Gateway";
+const pageDescription = "Run OpenRemote Gateway as a background desktop service for multi-instance routing, workspace reopen, and remote access control.";
+const gatewayDiagram = `Mobile App
+    |
+    | one QR / one auth endpoint / OpenCode API
+    v
+OpenRemote Gateway daemon
+    |\
+    | \__ OpenCode instance: ~/workspace/openremote
+    |
+     \__ OpenCode instance: ~/workspace/docs`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content={`${siteUrl}/docs/gateway`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/docs/gateway`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+    <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <div class="topbar-brand-row">
+            <a class="brand" href="/" aria-label="OpenRemote home">
+              <img src="/openremote-wordmark.svg" alt="openremote" />
+            </a>
+            <label class="docs-menu-button" for="docs-menu-toggle" aria-label="Toggle docs navigation" role="button" tabindex="0">
+              <span></span>
+              <span></span>
+              <span></span>
+            </label>
+          </div>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+    </nav>
+    <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+
+    <main class="page-shell docs-page-shell">
+      <div class="docs-layout">
+        <DocsSidebar />
+
+        <article class="docs-content">
+          <header class="docs-header">
+            <h1>OpenRemote Gateway</h1>
+            <p>Gateway mode moves remote access into one background desktop service so the app can stay connected while OpenCode instances come and go.</p>
+          </header>
+
+          <div class="doc-card">
+            <p><strong>Work in progress.</strong> OpenRemote Gateway is currently supported only when building OpenRemote from source.</p>
+          </div>
+
+          <section class="guide-section">
+            <h2>Setup</h2>
+            <p>Initialize gateway config with the setup wizard from <a class="inline-link" href="/docs/installation#set-up-opencode">Installation</a>. The wizard does not start the gateway or open the gateway TUI.</p>
+            <ol class="guide-list">
+              <li>Start the background gateway with <code>oo gateway start</code>.</li>
+              <li>Open the gateway control UI with <code>oo gateway</code>.</li>
+              <li>Start OpenCode normally in a workspace, for example <code>opencode -c --hostname 127.0.0.1</code>.</li>
+              <li>The OpenRemote plugin registers that OpenCode instance with the gateway.</li>
+              <li>Scan the QR code shown in the gateway TUI or OpenCode sidebar.</li>
+              <li>The mobile app connects to the gateway and the gateway routes app traffic to the selected OpenCode instance.</li>
+            </ol>
+            <p>Closing the gateway TUI does not stop the gateway. Use <code>oo gateway stop</code> to stop the background service.</p>
+            <p>After setup, <code>oo</code> is available as a short bin alias, for example <code>oo gateway --help</code>.</p>
+            <p>The bare setup wizard can initialize gateway config without starting the daemon or opening the gateway TUI.</p>
+            <p>The gateway saves its app-facing port after startup. Later <code>start</code> and <code>restart</code> commands try to reuse that port when it is available, and fall back to a free port when it is busy.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Purpose</h2>
+            <p>The gateway is the stable local authority for OpenRemote. It owns remote access, app authentication, QR setup, resume credentials, tunnels, client limits, and routing to registered OpenCode instances.</p>
+            <p>The OpenCode plugin keeps working on its own when the gateway is unavailable. Gateway mode is an upgrade path for multiple OpenCode instances, Wake to Code, and a persistent gateway control UI.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Architecture</h2>
+            <pre aria-label="OpenRemote Gateway architecture diagram"><code>{gatewayDiagram}</code></pre>
+            <ul class="guide-list">
+              <li>The mobile app connects to the gateway, not directly to each OpenCode plugin.</li>
+              <li>One gateway auth endpoint is shared by all registered OpenCode instances.</li>
+              <li>The gateway TUI can show the active gateway QR, while the OpenCode sidebar can show a compact local QR before a client connects.</li>
+              <li>Each OpenCode plugin registers its local OpenCode API target, workspace, active sessions, and heartbeat.</li>
+              <li>The gateway forwards app API calls to the selected OpenCode instance.</li>
+              <li>The selected instance is tracked per app client, with room for explicit instance headers later.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Commands</h2>
+            <div class="config-table-wrap">
+              <table class="config-table">
+                <thead>
+                  <tr>
+                    <th>Command</th>
+                    <th>Behavior</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>oo gateway</code></td>
+                    <td>Open the gateway TUI attached to the background gateway.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway start</code></td>
+                    <td>Start the background gateway daemon and exit after it is ready. It tries the last saved app port before falling back to a free port.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway stop</code></td>
+                    <td>Stop the background daemon, local proxy, tunnel, and app-facing gateway service.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway restart</code></td>
+                    <td>Stop and start the daemon, reusing the last saved app port when available.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway uninstall</code></td>
+                    <td>Stop the daemon and remove gateway config/state so setup can run again as first-time setup.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway status</code></td>
+                    <td>Print a human-readable daemon status summary.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway status --json</code></td>
+                    <td>Print machine-readable gateway status for the OpenCode plugin and automation.</td>
+                  </tr>
+                  <tr>
+                    <td><code>oo gateway --help</code></td>
+                    <td>Print gateway command usage.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="guide-section">
+            <h2>Plugin behavior</h2>
+            <p>When <code>OPENCODE_REMOTE_GATEWAY=auto</code>, the plugin tries to use the gateway if it is configured and reachable. If the gateway is missing, unavailable, or not configured, the plugin falls back to the current sidebar QR/proxy behavior.</p>
+            <p>When the gateway is active, the plugin registers with it and keeps the OpenCode sidebar small: gateway health, remote access state, QR setup when needed, and connected-client status.</p>
+            <p>The sidebar hides QR setup once a gateway client is connected. Before connection, it prefers the compact local gateway URL for sidebar QR size, while the gateway TUI can show the active gateway URL.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Workspaces</h2>
+            <p>The gateway can reopen previously connected workspaces for Wake to Code. A workspace becomes known only after a local OpenCode plugin successfully registers it.</p>
+            <ul class="guide-list">
+              <li>The app can request only a known workspace id. It cannot send arbitrary commands or paths.</li>
+              <li>The gateway uses the last command used to open that workspace.</li>
+              <li>If the workspace is already open, the gateway switches to that instance instead of starting another copy.</li>
+              <li>The gateway TUI shows registered instances and recent workspaces for desktop visibility.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Configuration</h2>
+            <div class="config-table-wrap">
+              <table class="config-table">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_GATEWAY</code></td>
+                    <td><code>auto</code></td>
+                    <td><code>auto</code> tries gateway then falls back to current plugin behavior. <code>required</code> requires gateway. <code>off</code> disables gateway mode.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_SECRET</code></td>
+                    <td>generated</td>
+                    <td>Use a static gateway secret. When set, automatic secret rotation is disabled.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_SECRET_ROTATION_SECONDS</code></td>
+                    <td><code>30</code></td>
+                    <td>Rotate the generated gateway secret after this many seconds while no client is connected. Use <code>0</code> to generate once on start and never rotate.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENTS</code></td>
+                    <td><code>1</code></td>
+                    <td>Maximum connected remote clients. Use <code>0</code> for unlimited clients.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_REQUIRE_CLIENT</code></td>
+                    <td><code>true</code></td>
+                    <td>Require the app's <code>x-openremote-client</code> header for gateway remote access.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_RESUME</code></td>
+                    <td><code>true</code></td>
+                    <td>Allow the same app client to reconnect with its previous gateway password after heartbeat loss or explicit disconnect, even if a new invite password has rotated.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_RESUME_SECONDS</code></td>
+                    <td><code>28800</code></td>
+                    <td>Reconnect grace window, in seconds, for saved resume credentials.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_ID</code></td>
+                    <td><code>true</code></td>
+                    <td>Use the app client id when enforcing <code>OPENCODE_REMOTE_MAX_CLIENTS</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_IP</code></td>
+                    <td><code>false</code></td>
+                    <td>Include client IP in gateway max-client keys.</td>
+                  </tr>
+                  <tr>
+                    <td><code>OPENCODE_REMOTE_MAX_CLIENT_USER_AGENT</code></td>
+                    <td><code>false</code></td>
+                    <td>Include user agent in gateway max-client keys.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>The saved gateway config also stores the last successful app port so stop/start and restart can keep QR URLs stable when the port is still free.</p>
+          </section>
+
+          <footer class="footer docs-footer">
+            <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+            <span><a class="inline-link" href="/privacy">Privacy</a></span>
+            <span class="footer-notice">OpenRemote is an independent project by Blair Hudson. It is not built by the OpenCode team and is not affiliated with OpenCode. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official OpenCode information.</span>
+          </footer>
+        </article>
+      </div>
+    </main>
+  </body>
+</html>
