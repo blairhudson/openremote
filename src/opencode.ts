@@ -56,6 +56,7 @@ export type AgentInfo = {
   name: string;
   description?: string;
   mode?: string;
+  hidden?: boolean;
   builtIn?: boolean;
 };
 export type AppConfig = {

@@ -39,17 +39,21 @@ COPY package.json bun.lock ./
 COPY packages/ ./packages/
 RUN bun install --frozen-lockfile
 
-# ---- build ----
-FROM base AS build
+# ---- prebuild ----
+FROM base AS prebuild
 COPY --from=deps /app/node_modules node_modules
 COPY . .
-RUN bunx expo prebuild --platform android --clean && \
-    sed -i 's/gradle-9\.0\.0/gradle-8.14.3/' /app/android/gradle/wrapper/gradle-wrapper.properties
+RUN bunx expo prebuild --platform android --clean
+
+# ---- wrapper fix ----
+FROM prebuild AS wrapper-fix
+RUN sed -i 's/gradle-9\.0\.0/gradle-8.14.3/' /app/android/gradle/wrapper/gradle-wrapper.properties
 
 # ---- apk ----
-FROM build AS apk
+FROM wrapper-fix AS apk
 WORKDIR /app/android
-RUN ./gradlew assembleRelease --no-daemon
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew assembleRelease --no-daemon
 RUN mkdir -p /app/dist && cp /app/android/app/build/outputs/apk/release/app-release.apk /app/dist/
 
 # ---- export ----

@@ -288,7 +288,22 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
 
   async function toggleMode() {
     let cycle = fallbackAgentNames;
-    if (agentToggleMode === "all") {
+    if (agentToggleMode === "primary") {
+      let availableAgents = agents;
+      if (!availableAgents.length) {
+        try {
+          availableAgents = await client.agents();
+          setAgents(availableAgents);
+        } catch {
+          availableAgents = [];
+        }
+      }
+      const names = availableAgents
+        .filter((agent) => agent.mode === "primary" && !agent.hidden)
+        .map((agent) => agent.name)
+        .filter(Boolean);
+      if (names.length) cycle = names;
+    } else if (agentToggleMode === "all") {
       let availableAgents = agents;
       if (!availableAgents.length) {
         try {
