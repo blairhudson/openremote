@@ -16,6 +16,34 @@ import qrcode from "qrcode-terminal";
 
 const run = promisify(execFile);
 
+function profileEnabled() {
+  return process.env.OPENCODE_REMOTE_PROFILE === "1" || process.env.OPENCODE_REMOTE_PROFILE === "true";
+}
+
+function profileThresholdMs() {
+  const value = Number(process.env.OPENCODE_REMOTE_PROFILE_THRESHOLD_MS ?? 50);
+  return Number.isFinite(value) && value >= 0 ? value : 50;
+}
+
+function profileLog(label, start) {
+  const duration = performance.now() - start;
+  if (duration >= profileThresholdMs()) console.error(`[openremote profile] ${label} ${duration.toFixed(1)}ms`);
+}
+
+function profileSpan(label, fn) {
+  if (!profileEnabled()) return fn();
+  const start = performance.now();
+  try {
+    const value = fn();
+    if (value && typeof value.then === "function") return value.finally(() => profileLog(label, start));
+    profileLog(label, start);
+    return value;
+  } catch (error) {
+    profileLog(label, start);
+    throw error;
+  }
+}
+
 const repoUrl = "https://github.com/blairhudson/openremote";
 const docsUrl = "https://openremote.blairhudson.com";
 const serverPlugin = "opencode-openremote";
@@ -164,6 +192,21 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function readJsonRequest(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => body += chunk);
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on("error", () => resolve({}));
+  });
+}
+
 function openRemoteClient(req) {
   const value = headerValue(req.headers["x-openremote-client"]);
   return value && value.length <= 128 ? value : undefined;
@@ -247,6 +290,12 @@ function gatewayClientForAuth(state, auth) {
   return gatewayClients(state).find((client) => client.key === key || client.clientId === auth.clientId);
 }
 
+function gatewayClientForRequest(state, req) {
+  const clientId = openRemoteClient(req);
+  if (!clientId) return undefined;
+  return gatewayClients(state).find((client) => client.clientId === clientId || client.key === `id=${clientId}`);
+}
+
 function gatewayClientRecordsForSummary(state) {
   const records = gatewayClients(state).map((client) => ({
     id: client.clientId || client.key || "client",
@@ -269,6 +318,99 @@ function gatewayClientRecordsForSummary(state) {
 
 function gatewayClientCount(state) {
   return gatewayClientRecordsForSummary(state).length;
+}
+
+function instanceHeaders(instance, extra = {}) {
+  return {
+    accept: "application/json",
+    ...(instance.upstreamAuthorization ? { authorization: instance.upstreamAuthorization } : {}),
+    ...extra,
+  };
+}
+
+async function instanceJson(instance, pathname, init = {}) {
+  if (!instance?.targetBaseUrl) throw new Error("instance missing target url");
+  const response = await fetch(new URL(pathname, instance.targetBaseUrl), {
+    ...init,
+    headers: instanceHeaders(instance, init.headers),
+    signal: AbortSignal.timeout(1200),
+  });
+  if (!response.ok) throw new Error(`${pathname} failed: ${response.status}`);
+  if (response.status === 204) return undefined;
+  const value = await response.json();
+  if (value && typeof value === "object" && ("data" in value || "error" in value)) {
+    if (value.error) throw new Error(typeof value.error === "string" ? value.error : JSON.stringify(value.error));
+    return value.data;
+  }
+  return value;
+}
+
+function compactText(value, max = 180) {
+  const textValue = String(value || "").replace(/\s+/g, " ").trim();
+  return textValue.length > max ? `${textValue.slice(0, max - 1)}…` : textValue;
+}
+
+function sessionTitle(session, fallbackId = "") {
+  const title = session?.title || session?.name;
+  if (title && title !== "session") return title;
+  return session?.id || fallbackId || title || "session";
+}
+
+function gatewayInboxInstance(instance) {
+  const questions = Array.isArray(instance.questions) ? instance.questions : [];
+  const activeSessionIds = Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds : [];
+  return questions.map((question, index) => {
+    const selectedSessionId = question?.sessionID || question?.sessionId || activeSessionIds[0];
+    return {
+    instanceId: instance.instanceId,
+    cwd: instance.cwd,
+    workspaceLabel: instance.workspaceLabel,
+    lastHeartbeatAt: instance.lastHeartbeatAt,
+    activeSessionIds,
+    question,
+    questionId: question?.id,
+    rowId: `${instance.instanceId || "instance"}:${question?.id || index}`,
+    selectedSessionId,
+    selectedSessionTitle: selectedSessionId || sessionTitle(undefined, selectedSessionId),
+    state: "question",
+    rank: 0,
+  };
+  });
+}
+
+async function gatewayInboxSummary(instances) {
+  return profileSpan("gateway.inbox.summary", async () => {
+    dedupeInstances(instances);
+    const rows = instances.map((instance) => profileSpan(`gateway.inbox.instance ${instance.instanceId || "unknown"}`, () => gatewayInboxInstance(instance)));
+    return rows.flat().sort((left, right) => left.rank - right.rank || String(left.workspaceLabel || left.cwd || left.instanceId).localeCompare(String(right.workspaceLabel || right.cwd || right.instanceId)));
+  });
+}
+
+function gatewayInstanceById(instances, instanceId) {
+  return instances.find((instance) => instance.instanceId === instanceId) || instances[0];
+}
+
+function sessionIdFromGatewayPath(pathname) {
+  const match = pathname.match(/^\/session\/([^/?#]+)/);
+  try {
+    return match ? decodeURIComponent(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function instanceForSession(instances, sessionId) {
+  if (!sessionId) return undefined;
+  return instances.find((instance) => Array.isArray(instance.activeSessionIds) && instance.activeSessionIds.includes(sessionId));
+}
+
+function selectedGatewayInstance(req, url, instances, state) {
+  const selectedId = headerValue(req.headers["x-openremote-instance"]) || url.searchParams.get("instance") || undefined;
+  if (selectedId) return gatewayInstanceById(instances, selectedId);
+  const pathInstance = instanceForSession(instances, sessionIdFromGatewayPath(url.pathname));
+  if (pathInstance) return pathInstance;
+  const clientInstance = instanceForSession(instances, gatewayClientForRequest(state, req)?.activeSessionId);
+  return clientInstance || instances[0];
 }
 
 function gatewaySummary(state, config, instances, workspaces) {
@@ -311,21 +453,26 @@ function gatewaySummary(state, config, instances, workspaces) {
   };
 }
 
-function gatewayOpenRemoteStatus(state, config, instances) {
-  dedupeInstances(instances);
-  const instance = instances[0];
-  updateGatewayKeepAwake(state, config, gatewayConnected(state));
-  return {
-    instanceId: instance?.instanceId || "gateway",
-    activeSessionIds: Array.isArray(instance?.activeSessionIds) ? instance.activeSessionIds : [],
-    allowNewSessions: process.env.OPENCODE_REMOTE_ALLOW_NEW_SESSIONS === "true",
-    connected: gatewayConnected(state),
-    heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
-    lastHeartbeatAt: gatewayLastHeartbeatAt(state),
-    resumeSeconds: resumeSeconds(),
-    resumeExpiresAt: state.resumeExpiresAt || 0,
-    keepAwake: gatewayKeepAwakeStatus(state, config),
-  };
+function gatewayOpenRemoteStatus(state, config, instances, req) {
+  return profileSpan("gateway.openremote.status", () => {
+    dedupeInstances(instances);
+    const activeSessionId = req ? gatewayClientForRequest(state, req)?.activeSessionId : undefined;
+    const instance = instanceForSession(instances, activeSessionId) || instances[0];
+    const activeSessionIds = Array.isArray(instance?.activeSessionIds) ? [...instance.activeSessionIds] : [];
+    if (activeSessionId && !activeSessionIds.includes(activeSessionId)) activeSessionIds.unshift(activeSessionId);
+    updateGatewayKeepAwake(state, config, gatewayConnected(state));
+    return {
+      instanceId: instance?.instanceId || "gateway",
+      activeSessionIds,
+      allowNewSessions: process.env.OPENCODE_REMOTE_ALLOW_NEW_SESSIONS === "true",
+      connected: gatewayConnected(state),
+      heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
+      lastHeartbeatAt: gatewayLastHeartbeatAt(state),
+      resumeSeconds: resumeSeconds(),
+      resumeExpiresAt: state.resumeExpiresAt || 0,
+      keepAwake: gatewayKeepAwakeStatus(state, config),
+    };
+  });
 }
 
 function secretRotationSeconds(config) {
@@ -454,6 +601,13 @@ function promoteGatewayAuth(req, state, config, auth) {
   }
 }
 
+function rememberGatewayActiveSession(req, state, activeSessionId) {
+  if (!activeSessionId || typeof activeSessionId !== "string") return;
+  const client = gatewayClientForRequest(state, req);
+  if (!client) return;
+  client.activeSessionId = activeSessionId;
+}
+
 function rotateGatewaySecret(state, config, force = false) {
   const seconds = secretRotationSeconds(config);
   if (!force && (seconds === 0 || gatewayConnected(state) || !config.remoteAccessEnabled)) return false;
@@ -573,11 +727,13 @@ function gatewayKeepAwakeStatus(state, config) {
   return { owner: "gateway", mode: gatewayKeepAwakeMode(config), enabled: !!state.keepAwakeEnabled };
 }
 
-function proxyToInstance(req, res, instance) {
+function proxyToInstance(req, res, instance, onResponse) {
   const target = new URL(req.url || "/", instance.targetBaseUrl);
+  target.searchParams.delete("instance");
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.authorization;
+  delete headers["x-openremote-instance"];
   delete headers["proxy-authorization"];
   delete headers["x-forwarded-user"];
   delete headers["x-forwarded-password"];
@@ -586,6 +742,7 @@ function proxyToInstance(req, res, instance) {
   headers["x-forwarded-proto"] = headers["x-forwarded-proto"] || "http";
   if (instance.upstreamAuthorization) headers.authorization = instance.upstreamAuthorization;
   const proxied = request(target, { method: req.method, headers }, (response) => {
+    onResponse?.(response.statusCode || 0);
     res.writeHead(response.statusCode || 502, response.statusMessage, response.headers);
     response.pipe(res);
   });
@@ -597,6 +754,21 @@ function proxyToInstance(req, res, instance) {
     }
   });
   req.pipe(proxied);
+}
+
+function questionActionId(pathname) {
+  const match = pathname.match(/^\/question\/([^/?#]+)\/(reply|reject)$/);
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+function forgetGatewayQuestion(instance, questionId) {
+  if (!questionId || !Array.isArray(instance.questions)) return;
+  instance.questions = instance.questions.filter((question) => question?.id !== questionId);
 }
 
 function cloudflareCapability() {
@@ -852,6 +1024,14 @@ async function runGatewayDaemon() {
       sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
       return;
     }
+    if (url.pathname === "/openremote/gateway/inbox" && req.method === "GET") {
+      if (!adminAuthorized(req, state)) {
+        sendJson(res, 401, { ok: false, error: "unauthorized" });
+        return;
+      }
+      sendJson(res, 200, { ok: true, instances: await gatewayInboxSummary(instances) });
+      return;
+    }
     if (url.pathname === "/openremote/gateway/remote/stop" && req.method === "POST") {
       if (!adminAuthorized(req, state)) {
         sendJson(res, 401, { ok: false, error: "unauthorized" });
@@ -908,6 +1088,7 @@ async function runGatewayDaemon() {
       req.on("end", async () => {
         const payload = JSON.parse(body || "{}");
         const now = Date.now();
+        const configBefore = JSON.stringify(config);
         if (config.remoteAccessEnabled === false || config.remoteAccessMode === "off") {
           config.remoteAccessEnabled = true;
           config.remoteAccessMode = "local";
@@ -933,11 +1114,13 @@ async function runGatewayDaemon() {
             lastInstanceId: payload.instanceId,
             disabled: existingWorkspace?.disabled || false,
           };
-          if (existingWorkspace) Object.assign(existingWorkspace, workspace);
-          else workspaces.push(workspace);
+          if (existingWorkspace) {
+            const workspaceChanged = Object.entries(workspace).some(([key, value]) => existingWorkspace[key] !== value);
+            if (workspaceChanged) Object.assign(existingWorkspace, workspace);
+          } else workspaces.push(workspace);
           config.workspaces = workspaces;
         }
-        await writeJson(gatewayConfigPath, config);
+        if (JSON.stringify(config) !== configBefore) await writeJson(gatewayConfigPath, config);
         sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
       });
       return;
@@ -958,7 +1141,9 @@ async function runGatewayDaemon() {
         return;
       }
       markGatewayConnected(req, state, config, auth);
-      sendJson(res, 200, gatewayOpenRemoteStatus(state, config, instances));
+      const payload = req.method === "POST" ? await readJsonRequest(req) : {};
+      rememberGatewayActiveSession(req, state, payload.activeSessionId || url.searchParams.get("activeSessionId"));
+      sendJson(res, 200, gatewayOpenRemoteStatus(state, config, instances, req));
       return;
     }
     if (url.pathname === "/openremote/disconnect" && req.method === "POST") {
@@ -980,23 +1165,27 @@ async function runGatewayDaemon() {
       sendJson(res, 503, { ok: false, error: "remote_access_disabled", remoteAccess: { enabled: false } });
       return;
     }
+    const admin = adminAuthorized(req, state);
     const auth = gatewayAppAuth(req, state, config);
-    if (!auth.ok) {
+    if (!admin && !auth.ok) {
       res.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote Gateway\"" });
       res.end("Unauthorized");
       return;
     }
-    if (!acceptRemoteClient(req, state, url.pathname)) {
+    if (!admin && !acceptRemoteClient(req, state, url.pathname)) {
       sendJson(res, 429, { ok: false, error: "too_many_clients" });
       return;
     }
-    markGatewayConnected(req, state, config, auth);
-    const instance = instances[0];
+    if (!admin) markGatewayConnected(req, state, config, auth);
+    const instance = selectedGatewayInstance(req, url, instances, state);
     if (!instance) {
       sendJson(res, 503, { ok: false, error: "no_registered_instances" });
       return;
     }
-    proxyToInstance(req, res, instance);
+    const questionId = req.method === "POST" ? questionActionId(url.pathname) : undefined;
+    proxyToInstance(req, res, instance, (statusCode) => {
+      if (statusCode >= 200 && statusCode < 300) forgetGatewayQuestion(instance, questionId);
+    });
   });
   state.appPort = await listenGatewayServer(server, Number(config.appPort || 0));
   config.appPort = state.appPort;
@@ -1030,24 +1219,59 @@ async function runGatewayDaemon() {
 }
 
 async function fetchGatewayStatus(state) {
-  const response = await fetch(`http://127.0.0.1:${state.appPort}/openremote/gateway/status`, {
-    headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
-    signal: AbortSignal.timeout(1200),
+  return profileSpan("gateway.fetch.status", async () => {
+    const response = await fetch(`http://127.0.0.1:${state.appPort}/openremote/gateway/status`, {
+      headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) throw new Error(`status failed: ${response.status}`);
+    return response.json();
   });
-  if (!response.ok) throw new Error(`status failed: ${response.status}`);
-  return response.json();
+}
+
+async function fetchGatewayInbox(state) {
+  return profileSpan("gateway.fetch.inbox", async () => {
+    const response = await fetch(`http://127.0.0.1:${state.appPort}/openremote/gateway/inbox`, {
+      headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
+      signal: AbortSignal.timeout(1800),
+    });
+    if (!response.ok) throw new Error(`inbox failed: ${response.status}`);
+    return response.json();
+  });
+}
+
+async function gatewayOpenCodeFetch(pathname, options = {}) {
+  return profileSpan(`gateway.fetch.opencode ${pathname}`, async () => {
+    const state = await gatewayState();
+    if (!state?.appPort || !state?.adminToken) throw new Error("OpenRemote Gateway is not running");
+    const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, {
+      method: options.method || "GET",
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      headers: {
+        authorization: `Bearer ${state.adminToken}`,
+        connection: "close",
+        ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+        ...(options.instanceId ? { "x-openremote-instance": options.instanceId } : {}),
+      },
+      signal: AbortSignal.timeout(1800),
+    });
+    if (!response.ok) throw new Error(`${pathname} failed: ${response.status}`);
+    return response.status === 204 ? undefined : response.json();
+  });
 }
 
 async function gatewayAdminPost(pathname) {
-  const state = await gatewayState();
-  if (!state?.appPort || !state?.adminToken) throw new Error("OpenRemote Gateway is not running");
-  const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
-    signal: AbortSignal.timeout(1200),
+  return profileSpan(`gateway.fetch.admin ${pathname}`, async () => {
+    const state = await gatewayState();
+    if (!state?.appPort || !state?.adminToken) throw new Error("OpenRemote Gateway is not running");
+    const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) throw new Error(`${pathname} failed: ${response.status}`);
+    return response.json();
   });
-  if (!response.ok) throw new Error(`${pathname} failed: ${response.status}`);
-  return response.json();
 }
 
 async function startGateway(options = {}) {
@@ -1198,468 +1422,18 @@ async function attachGatewayTui() {
 }
 
 async function attachGatewayOpenTui() {
-  const { createCliRenderer, BoxRenderable, TextRenderable } = await import("@opentui/core");
-  const theme = {
-    background: "#0b0d12",
-    panel: "#11131a",
-    text: "#cdd6f4",
-    muted: "#6c7086",
-    accent: "#f9e2af",
-    good: "#a6e3a1",
-    warn: "#f38ba8",
-  };
-  let status;
-  let notice = "";
-  let remotePickerOpen = false;
-  let remotePickerIndex = 0;
-  let inviteQrVisible = false;
-  let inviteClientCount = 0;
-  let busy = false;
-  let closed = false;
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
-    clearOnShutdown: true,
-    targetFps: 30,
-    backgroundColor: theme.background,
+  const { attachGatewayOpenTui: attach } = await import("./gateway-tui/index.mjs");
+  await attach({
+    gatewayState,
+    fetchGatewayStatus,
+    fetchGatewayInbox,
+    gatewayOpenCodeFetch,
+    gatewayAdminPost,
+    startGateway,
+    stopGateway,
+    qrLines,
+    compactText,
   });
-
-  const panelProps = {
-    backgroundColor: theme.panel,
-    border: true,
-    borderColor: theme.muted,
-    paddingLeft: 2,
-    paddingRight: 2,
-    paddingTop: 0,
-    paddingBottom: 0,
-  };
-
-  function box(id, props = {}) {
-    return new BoxRenderable(renderer, { id, ...props });
-  }
-
-  function text(id, content = "", props = {}) {
-    return new TextRenderable(renderer, { id, content, fg: theme.text, wrapMode: "word", ...props });
-  }
-
-  const root = box("gateway-root", {
-    width: "100%",
-    height: "100%",
-    backgroundColor: theme.background,
-    flexDirection: "column",
-    paddingTop: 0,
-    paddingLeft: 1,
-    paddingRight: 1,
-    gap: 1,
-  });
-
-  const headerPanel = box("gateway-header", { ...panelProps, width: "auto", height: 3, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", borderColor: theme.accent });
-  const headerText = text("gateway-header-text", "OpenRemote Gateway", { fg: theme.accent });
-  const headerEndpointText = text("gateway-header-endpoint", "", { fg: theme.accent, wrapMode: "none" });
-  headerPanel.add(headerText);
-  headerPanel.add(headerEndpointText);
-
-  const wordmarkLetters = {
-    e: ["1111", "1000", "1110", "1000", "1111"],
-    m: ["10001", "11011", "10101", "10001", "10001"],
-    n: ["1001", "1101", "1011", "1001", "1001"],
-    o: ["111", "101", "101", "101", "111"],
-    p: ["1110", "1001", "1110", "1000", "1000"],
-    r: ["1110", "1001", "1110", "1010", "1001"],
-    t: ["11111", "00100", "00100", "00100", "00100"],
-  };
-  function compactWordmark(word) {
-    const rows = ["", "", ""];
-    for (const letter of word) {
-      const pixels = wordmarkLetters[letter];
-      for (let row = 0; row < rows.length; row += 1) {
-        const top = pixels[row * 2] || "";
-        const bottom = pixels[row * 2 + 1] || "";
-        const width = Math.max(top.length, bottom.length);
-        let line = "";
-        for (let column = 0; column < width; column += 1) {
-          const topPixel = top[column] === "1";
-          const bottomPixel = bottom[column] === "1";
-          line += topPixel && bottomPixel ? "█" : topPixel ? "▀" : bottomPixel ? "▄" : " ";
-        }
-        rows[row] += `${line} `;
-      }
-    }
-    return rows.map((row) => row.trimEnd()).join("\n");
-  }
-  const openWordmark = compactWordmark("open");
-  const remoteWordmark = compactWordmark("remote");
-  const splashPanel = box("gateway-splash", { width: "auto", height: "auto", flexGrow: 1, flexShrink: 1, alignItems: "center", justifyContent: "center", flexDirection: "column" });
-  const splashLogoRow = box("gateway-splash-logo", { width: "auto", height: 4, flexDirection: "row", flexShrink: 0 });
-  const splashOpenLogoText = text("gateway-splash-logo-open", openWordmark, { fg: "#A8A8A8", wrapMode: "none" });
-  const splashLogoGap = text("gateway-splash-logo-gap", " \n \n ", { fg: theme.muted, wrapMode: "none" });
-  const splashRemoteLogoText = text("gateway-splash-logo-remote", remoteWordmark, { fg: "#D0D0D0", wrapMode: "none" });
-  const splashTaglineText = text("gateway-splash-tagline", "remote control for opencode", { fg: theme.muted, wrapMode: "none" });
-  const splashLogoSpacer = text("gateway-splash-logo-spacer", " ", { fg: theme.muted, wrapMode: "none" });
-  splashLogoRow.add(splashOpenLogoText);
-  splashLogoRow.add(splashLogoGap);
-  splashLogoRow.add(splashRemoteLogoText);
-  const splashCard = box("gateway-splash-card", { ...panelProps, width: "auto", height: "auto", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0, borderColor: theme.accent });
-  const splashTitleText = text("gateway-splash-title", "Scan with OpenRemote", { fg: theme.muted, wrapMode: "none" });
-  const splashQrText = text("gateway-splash-qr", "", { fg: theme.accent, wrapMode: "none" });
-  const splashInfoText = text("gateway-splash-info", "", { fg: theme.muted, wrapMode: "none" });
-  splashCard.add(splashTitleText);
-  splashCard.add(splashQrText);
-  splashCard.add(splashInfoText);
-  splashPanel.add(splashLogoRow);
-  splashPanel.add(splashTaglineText);
-  splashPanel.add(splashLogoSpacer);
-  splashPanel.add(splashCard);
-
-  const topPanels = box("gateway-top-panels", { width: "auto", height: "auto", flexDirection: "row", flexGrow: 1, flexShrink: 1, gap: 1, alignItems: "stretch" });
-  const statusPanel = box("gateway-status-panel", { ...panelProps, flexDirection: "column", flexGrow: 1, flexShrink: 1, width: "auto", minWidth: 0, title: "Status", titleColor: theme.muted });
-  const statusText = text("gateway-status-text");
-  statusPanel.add(statusText);
-  const qrPanel = box("gateway-qr-panel", { ...panelProps, flexDirection: "column", alignItems: "center", flexGrow: 0, flexShrink: 0, width: 32, minWidth: 0, borderColor: theme.accent });
-  const qrTitleText = text("gateway-qr-title", "off", { fg: theme.muted });
-  const qrText = text("gateway-qr-text", "", { fg: theme.accent, wrapMode: "none" });
-  qrPanel.add(qrTitleText);
-  qrPanel.add(qrText);
-
-  const leftPanels = box("gateway-left-panels", { width: "auto", flexDirection: "column", flexGrow: 1, flexShrink: 1, gap: 1, minWidth: 0 });
-  const instancesPanel = box("gateway-instances-panel", { ...panelProps, flexDirection: "column", flexGrow: 1, flexShrink: 1, width: "auto", minWidth: 0, title: "Instances", titleColor: theme.muted });
-  const instancesText = text("gateway-instances-text");
-  instancesPanel.add(instancesText);
-  const clientsPanel = box("gateway-clients-panel", { ...panelProps, flexDirection: "column", flexGrow: 1, flexShrink: 1, width: "auto", minWidth: 0, title: "Clients", titleColor: theme.muted });
-  const clientsText = text("gateway-clients-text");
-  clientsPanel.add(clientsText);
-  const workspacesPanel = box("gateway-workspaces-panel", { ...panelProps, flexDirection: "column", flexGrow: 1, flexShrink: 1, width: "auto", minWidth: 0, title: "Recent Workspaces", titleColor: theme.muted });
-  const workspacesText = text("gateway-workspaces-text");
-  workspacesPanel.add(workspacesText);
-  leftPanels.add(statusPanel);
-  leftPanels.add(instancesPanel);
-  leftPanels.add(clientsPanel);
-  leftPanels.add(workspacesPanel);
-  topPanels.add(leftPanels);
-  topPanels.add(qrPanel);
-
-  const controlsPanel = box("gateway-controls-panel", { ...panelProps, width: "auto", height: 3, flexShrink: 0, flexDirection: "column", borderColor: theme.muted });
-  const controlsText = text("gateway-controls-text", "", { fg: theme.muted, wrapMode: "none" });
-  controlsPanel.add(controlsText);
-
-  const modalOverlay = box("gateway-modal-overlay", {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    visible: false,
-    zIndex: 10,
-    backgroundColor: "transparent",
-    alignItems: "center",
-    justifyContent: "center",
-  });
-
-  const modal = box("gateway-remote-modal", {
-    ...panelProps,
-    flexDirection: "column",
-    width: 44,
-    height: 8,
-    flexShrink: 0,
-    borderColor: theme.accent,
-    title: "Remote Access",
-  });
-  const modalHelpText = text("gateway-modal-help", "choose mode", { fg: theme.muted });
-  const offButton = box("gateway-modal-off", { width: "auto", height: 1, paddingLeft: 1, paddingRight: 1, onMouseDown: () => void runAction("remote-off") });
-  const offText = text("gateway-modal-off-text", "Off");
-  offButton.add(offText);
-  const cloudflareButton = box("gateway-modal-cloudflare", { width: "auto", height: 1, paddingLeft: 1, paddingRight: 1, onMouseDown: () => void runAction("remote-cloudflare") });
-  const cloudflareText = text("gateway-modal-cloudflare-text", "Cloudflare");
-  cloudflareButton.add(cloudflareText);
-  const modalKeysText = text("gateway-modal-keys", "up/down enter esc", { fg: theme.muted });
-  modal.add(modalHelpText);
-  modal.add(offButton);
-  modal.add(cloudflareButton);
-  modal.add(modalKeysText);
-  modalOverlay.add(modal);
-
-  root.add(headerPanel);
-  root.add(splashPanel);
-  root.add(topPanels);
-  root.add(controlsPanel);
-  root.add(modalOverlay);
-  renderer.root.add(root);
-
-  function formatRows(rows, empty) {
-    return rows.length ? rows.join("\n") : empty;
-  }
-
-  function labelValue(label, value) {
-    return `${label.padEnd(16, " ")} ${value}`;
-  }
-
-  function timeAgo(timestamp) {
-    const value = Number(timestamp || 0);
-    if (!value) return "unknown";
-    const seconds = Math.max(0, Math.floor((Date.now() - value) / 1000));
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  }
-
-  function displayClientId(value) {
-    const id = String(value || "client");
-    return `***${id.slice(-6)}`;
-  }
-
-  function clientStatus(remote) {
-    if (!remote?.enabled) return "off";
-    const clients = Array.isArray(remote.clients) ? remote.clients : [];
-    if (!clients.length) return "waiting";
-    return clients.map((client) => {
-      const connected = timeAgo(client.connectedAt);
-      const seen = timeAgo(client.lastSeenAt || client.lastHeartbeatAt);
-      return labelValue(displayClientId(client.id), `connected ${connected}, last seen ${seen}`);
-    }).join("\n");
-  }
-
-  function displayEndpoint(value) {
-    if (!value) return "hidden";
-    try {
-      const url = new URL(value);
-      url.username = "";
-      url.password = "";
-      return url.toString().replace(/\/$/, "");
-    } catch {
-      return value;
-    }
-  }
-
-  function centeredLines(lines, width) {
-    return lines.map((line) => {
-      const pad = Math.max(0, Math.floor((width - line.length) / 2));
-      return `${" ".repeat(pad)}${line}`;
-    }).join("\n");
-  }
-
-  function updateLayout() {
-    const terminalWidth = Math.max(20, renderer.terminalWidth || 80);
-    const contentWidth = Math.max(20, terminalWidth - 2);
-    const qr = status?.remoteAccess?.connected && !inviteQrVisible ? [] : qrLines(status?.remoteAccess?.appUrl || "");
-    const qrWidth = Math.max(28, Math.max(0, ...qr.map((line) => line.length)) + 6);
-    const compact = contentWidth < Math.max(84, qrWidth + 38);
-
-    topPanels.flexDirection = compact ? "column" : "row";
-    splashPanel.width = "auto";
-    splashPanel.height = "auto";
-    splashPanel.flexGrow = 1;
-    splashCard.width = Math.min(contentWidth, Math.max(qrWidth + 4, 62));
-    splashQrText.width = qrWidth;
-
-    statusPanel.width = "auto";
-    statusPanel.flexGrow = 1;
-    statusPanel.flexShrink = 1;
-    qrPanel.width = compact ? "auto" : qrWidth;
-    qrPanel.minWidth = qrWidth;
-    qrPanel.flexGrow = compact ? 1 : 0;
-    qrPanel.flexShrink = 0;
-    qrPanel.height = compact ? (qr.length > 0 ? Math.max(5, qr.length + 4) : 5) : "auto";
-
-    instancesPanel.width = "auto";
-    clientsPanel.width = "auto";
-    workspacesPanel.width = "auto";
-    modalOverlay.width = terminalWidth;
-    modalOverlay.height = renderer.terminalHeight || 24;
-    modal.width = Math.min(44, contentWidth);
-  }
-
-  function updateView() {
-    const remote = status?.remoteAccess;
-    const tunnel = remote?.tunnel || { status: "off", log: "off" };
-    const qr = qrLines(remote?.appUrl || "");
-    const clients = Array.isArray(remote?.clients) ? remote.clients : [];
-    const maxClients = Number(remote?.maxClients ?? 1);
-    const canInviteClient = !!remote?.enabled && remote.connected && (maxClients === 0 || clients.length < maxClients);
-    const contentWidth = Math.max(20, (renderer.terminalWidth || 80) - 2);
-    const qrFits = qr.length > 0 && Math.max(0, ...qr.map((line) => line.length)) + 6 <= contentWidth;
-    const showSplash = !!status && !!remote?.enabled && !remote.connected && clients.length === 0 && !inviteQrVisible;
-
-    statusText.content = [
-      labelValue("Gateway", status ? "running" : "stopped"),
-      labelValue("Remote Access", remote?.enabled ? remote.mode || "local" : "off"),
-      labelValue("Keep Awake", status?.keepAwake?.enabled ? `on (${status.keepAwake.mode || "auto"})` : `off (${status?.keepAwake?.mode || "off"})`),
-      labelValue("Username", remote?.username || ""),
-      labelValue("Password", remote?.connected ? "*******" : remote?.password || ""),
-      labelValue("Tunnel", tunnel.log || tunnel.status || "off"),
-    ].filter(Boolean).join("\n");
-
-    headerEndpointText.content = displayEndpoint(remote?.appUrl);
-
-    headerPanel.visible = !showSplash;
-    topPanels.visible = !showSplash;
-    controlsPanel.visible = true;
-    splashPanel.visible = showSplash;
-    const splashCountdown = remote?.secondsRemaining > 0 ? ` (${remote.secondsRemaining}s)` : "";
-    splashQrText.content = qrFits ? `${centeredLines(qr, Math.max(28, Math.max(0, ...qr.map((line) => line.length)) + 6))}\n` : "widen terminal";
-    splashTitleText.content = qrFits ? `Scan with OpenRemote${splashCountdown}` : "Terminal too narrow";
-    splashInfoText.content = [
-      labelValue("Remote Access", remote?.mode || "local"),
-      labelValue("Endpoint", displayEndpoint(remote?.appUrl)),
-      labelValue("Client", "waiting"),
-    ].join("\n");
-
-    controlsText.content = `[space] ${status ? "stop gateway" : "start gateway"}   [t] remote access   [k] keep awake${canInviteClient ? "   [c] connect client" : ""}   [q] close TUI`;
-    instancesPanel.title = `Instances (${status?.instances?.length || 0})`;
-    clientsPanel.title = `Clients (${clients.length})`;
-    workspacesPanel.title = `Recent Workspaces (${status?.workspaces?.length || 0})`;
-
-    const showQr = remote?.enabled && (!remote.connected || inviteQrVisible) && qrFits;
-    const countdown = remote?.secondsRemaining > 0 ? ` (${remote.secondsRemaining}s)` : "";
-    const qrMessage = remote?.enabled && !remote.connected && qr.length ? "widen terminal" : canInviteClient ? "[c] to connect another client" : remote?.connected ? "max clients reached" : "";
-    const centerQrMessage = !showQr && !!qrMessage;
-    qrPanel.justifyContent = centerQrMessage ? "center" : "flex-start";
-    qrTitleText.visible = showQr || !status;
-    qrTitleText.content = showQr ? `Scan with OpenRemote${remote.connected ? "" : countdown}` : status ? "" : "Start the gateway to show QR code";
-    qrTitleText.fg = showQr ? theme.accent : theme.muted;
-    qrText.content = showQr ? qr.join("\n") : qrMessage;
-
-    instancesText.content = [
-      formatRows((status?.instances || []).slice(0, 6).map((instance) => labelValue(instance.workspaceLabel || instance.instanceId || "instance", instance.cwd || "registered")), "none registered"),
-    ].join("\n");
-    clientsText.content = clientStatus(remote);
-    workspacesText.content = [
-      formatRows((status?.workspaces || []).slice(0, 6).map((workspace) => labelValue(workspace.disabled ? `${workspace.label} disabled` : workspace.label, workspace.canonicalCwd || workspace.id)), "none yet"),
-    ].join("\n");
-
-    modalOverlay.visible = remotePickerOpen;
-    offButton.backgroundColor = remotePickerIndex === 0 ? theme.accent : theme.panel;
-    offText.fg = remotePickerIndex === 0 ? theme.background : theme.text;
-    cloudflareButton.backgroundColor = remotePickerIndex === 1 ? theme.accent : theme.panel;
-    cloudflareText.fg = remotePickerIndex === 1 ? theme.background : theme.accent;
-
-    updateLayout();
-    renderer.requestRender();
-  }
-
-  async function refresh() {
-    if (closed) return;
-    const state = await gatewayState();
-    if (!state?.appPort || !state?.adminToken) {
-      status = undefined;
-      updateView();
-      return;
-    }
-    try {
-      status = await fetchGatewayStatus(state);
-    } catch {
-      status = undefined;
-    }
-    const nextClientCount = status?.remoteAccess?.clients?.length || 0;
-    if (inviteQrVisible && nextClientCount > inviteClientCount) inviteQrVisible = false;
-    updateView();
-  }
-
-  function actionForKey(key) {
-    const name = String(key?.name || "").toLowerCase();
-    const sequence = key?.sequence || key;
-    if (name === "q" || sequence === "q" || sequence === "\u0003") return "quit";
-    if (name === "escape" || sequence === "\u001b") return "modal-close";
-    if (name === "up") return "modal-up";
-    if (name === "down") return "modal-down";
-    if (name === "return" || name === "enter" || sequence === "\r") return "modal-select";
-    if (name === "space" || sequence === " ") return "toggle-gateway";
-    if (name === "t" || sequence === "t") return "open-remote-picker";
-    if (name === "k" || sequence === "k") return "toggle-keep-awake";
-    if (name === "c" || sequence === "c") return "connect-client";
-    return undefined;
-  }
-
-  async function runAction(action) {
-    try {
-      if (action === "quit") {
-        renderer.destroy();
-        return;
-      }
-      if (action === "open-remote-picker") {
-        remotePickerIndex = status?.remoteAccess?.mode === "cloudflare" ? 1 : 0;
-        remotePickerOpen = true;
-        notice = "remote options";
-        updateView();
-        return;
-      }
-      if (action === "connect-client") {
-        const remote = status?.remoteAccess;
-        const clients = Array.isArray(remote?.clients) ? remote.clients : [];
-        const maxClients = Number(remote?.maxClients ?? 1);
-        if (!remote?.connected || (maxClients !== 0 && clients.length >= maxClients)) {
-          notice = "max clients reached";
-          updateView();
-          return;
-        }
-        await gatewayAdminPost("/openremote/gateway/remote/invite");
-        inviteClientCount = clients.length;
-        inviteQrVisible = true;
-        await refresh();
-        return;
-      }
-      if (action === "modal-close") {
-        remotePickerOpen = false;
-        updateView();
-        return;
-      }
-      if (action === "modal-up" || action === "modal-down") {
-        remotePickerIndex = action === "modal-up" ? Math.max(0, remotePickerIndex - 1) : Math.min(1, remotePickerIndex + 1);
-        notice = remotePickerIndex === 0 ? "off" : "cloudflare";
-        updateView();
-        return;
-      }
-      if (action === "modal-select") action = remotePickerIndex === 0 ? "remote-off" : "remote-cloudflare";
-      if (busy) return;
-      busy = true;
-      if (action === "toggle-gateway") {
-        if (status) await stopGateway({ quiet: true });
-        else await startGateway({ quiet: true });
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-      if (action === "remote-off") {
-        if (status) await gatewayAdminPost("/openremote/gateway/remote/off");
-        remotePickerOpen = false;
-      }
-      if (action === "remote-cloudflare") {
-        if (status) await gatewayAdminPost("/openremote/gateway/remote/cloudflare");
-        remotePickerOpen = false;
-      }
-      if (action === "toggle-keep-awake") {
-        if (status) await gatewayAdminPost("/openremote/gateway/keep-awake/toggle");
-      }
-      notice = action.startsWith("remote-") ? "updated" : "refreshed";
-      await refresh();
-    } catch (error) {
-      notice = error instanceof Error ? error.message : String(error);
-      updateView();
-    } finally {
-      busy = false;
-    }
-  }
-
-  const keypressHandler = (event) => {
-    const action = actionForKey(event);
-    if (!action) return;
-    event.preventDefault?.();
-    event.stopPropagation?.();
-    void runAction(action);
-  };
-  renderer.keyInput.on("keypress", keypressHandler);
-  renderer.on("resize", updateView);
-
-  await refresh();
-  const timer = setInterval(() => void refresh(), 1000);
-  timer.unref?.();
-  renderer.once("destroy", () => {
-    closed = true;
-    clearInterval(timer);
-    renderer.keyInput.off("keypress", keypressHandler);
-    renderer.off("resize", updateView);
-  });
-  renderer.start();
-  await new Promise((resolve) => renderer.once("destroy", resolve));
 }
 
 async function gatewayMain(args) {

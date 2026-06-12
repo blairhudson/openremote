@@ -6,6 +6,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ChatScreen } from "./src/ChatScreen";
 import { ConnectScreen } from "./src/ConnectScreen";
+import { InboxScreen } from "./src/InboxScreen";
 import { OpencodeClient, type Command, type Message, type MessageBundle, type ModelLimits, type OpenRemoteStatus, type Part, type PermissionRequest, type QuestionRequest, type Session, type SessionStatus, type StreamEvent } from "./src/opencode";
 import {
   clearActiveSession,
@@ -56,7 +57,7 @@ export default function App() {
   const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
   const [questions, setQuestions] = useState<QuestionRequest[]>([]);
   const [serverDirectory, setServerDirectory] = useState<string | undefined>();
-  const [screen, setScreen] = useState<"sessions" | "settings">("sessions");
+  const [screen, setScreen] = useState<"sessions" | "settings" | "inbox">("sessions");
   const [keepAwakeMode, setKeepAwakeMode] = useState<KeepAwakeMode>("auto");
   const [tunnelMode, setTunnelMode] = useState<TunnelMode>("off");
   const [agentToggleMode, setAgentToggleMode] = useState<AgentToggleMode>("builtin");
@@ -270,7 +271,7 @@ export default function App() {
     stopHeartbeat();
     const beat = async () => {
       if (!isCurrentGeneration(generation)) return;
-      const status = await target.heartbeat();
+      const status = await target.heartbeat(activeSessionIdRef.current);
       if (!isCurrentGeneration(generation)) return;
       if (status) {
         const wasReconnecting = reconnectStartedAt.current > 0;
@@ -533,7 +534,7 @@ export default function App() {
       next = { ...next, clientId: next.clientId ?? await loadClientId() };
       const nextClient = new OpencodeClient(next);
       await nextClient.health();
-      const status = await nextClient.openRemoteStatus();
+      const status = await nextClient.openRemoteStatus(scannedSessionId ?? activeSessionIdRef.current);
       if (status?.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
       if (status?.resumeSeconds) next = { ...next, resumeSeconds: status.resumeSeconds };
       await saveConnection(next);
@@ -589,7 +590,7 @@ export default function App() {
 
     while (isCurrentGeneration(generation) && Date.now() < deadline) {
       const target = new OpencodeClient(next);
-      const status = await target.heartbeat();
+      const status = await target.heartbeat(scannedSessionId ?? activeSessionIdRef.current);
       if (status) {
         if (status.heartbeatTimeoutSeconds) next = { ...next, heartbeatTimeoutSeconds: status.heartbeatTimeoutSeconds };
         if (status.resumeSeconds) next = { ...next, resumeSeconds: status.resumeSeconds };
@@ -634,7 +635,7 @@ export default function App() {
     if (!showBusy && isStreaming && !forceStreaming) return;
     if (showBusy) setBusy(true);
     try {
-      const status = await target.openRemoteStatus();
+      const status = await target.openRemoteStatus(sessionId ?? activeSessionIdRef.current);
       if (!isCurrentGeneration(generation)) return;
       updateOpenRemoteStatus(status, target, generation);
       const nextSessions = await target.sessions();
@@ -733,7 +734,7 @@ export default function App() {
 
   async function restoreSession(target: OpencodeClient, sessionId: string, generation = connectionGeneration.current) {
     if (!isCurrentGeneration(generation)) return false;
-    const status = await target.openRemoteStatus();
+    const status = await target.openRemoteStatus(sessionId);
     if (!isCurrentGeneration(generation)) return false;
     updateOpenRemoteStatus(status, target, generation);
     const nextSessions = await target.sessions();
@@ -907,8 +908,10 @@ export default function App() {
             <ChatScreen client={client} session={active} commands={commands} messages={messages} livePartsByMessage={livePartsByMessage} permissions={permissions.filter((permission) => permission.sessionID === active.id)} questions={questions.filter((question) => question.sessionID === active.id)} modelLimits={modelLimits} serverDirectory={serverDirectory} status={sessionStatus[active.id]} allowNewSessions={allowNewSessions} agentToggleMode={agentToggleMode} onBack={disconnectSession} onSent={() => undefined} onForked={openFork} onNewSession={createAndOpenSession} onSessionUpdated={updateActive} onReplyPermission={replyPermission} onReplyQuestion={replyQuestion} onRejectQuestion={rejectQuestion} />
           ) : screen === "settings" ? (
             <SettingsScreen keepAwakeMode={keepAwakeMode} tunnelMode={tunnelMode} tunnelCapability={tunnelCapability} tunnelUrl={tunnelUrl} tunnelError={tunnelError} tunnelLog={tunnelLog} remoteAccessInUse={isTunnelConnection(settings)} serverUrl={settings?.baseUrl ?? ""} clientId={settings?.clientId} agentToggleMode={agentToggleMode} onBack={() => setScreen("sessions")} onChangeKeepAwakeMode={(mode) => void changeKeepAwakeMode(mode)} onChangeTunnelMode={(mode) => void changeTunnelMode(mode)} onChangeAgentToggleMode={(mode) => void changeAgentToggleMode(mode)} onRegenerateClientId={() => void regenerateOpenRemoteClientId()} />
+          ) : screen === "inbox" ? (
+            <InboxScreen questions={questions} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} onBack={() => setScreen("sessions")} onReply={replyQuestion} onReject={rejectQuestion} />
           ) : (
-            <SessionsScreen client={client} sessions={sessions} serverUrl={settings?.baseUrl ?? ""} busy={busy} allowNewSessions={allowNewSessions} onCreate={createSession} onOpen={openSession} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
+            <SessionsScreen client={client} sessions={sessions} questions={questions} serverUrl={settings?.baseUrl ?? ""} busy={busy} allowNewSessions={allowNewSessions} onCreate={createSession} onOpen={openSession} onOpenInbox={() => setScreen("inbox")} onDisconnect={disconnect} onSettings={() => setScreen("settings")} />
           )}
         </SafeAreaView>
       </SafeAreaProvider>

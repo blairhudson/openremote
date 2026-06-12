@@ -198,17 +198,18 @@ export class OpencodeClient {
     return this.request<QuestionRequest[]>("/question");
   }
 
-  async openRemoteStatus() {
+  async openRemoteStatus(activeSessionId?: string) {
     try {
-      return await this.request<OpenRemoteStatus>("/openremote/status");
+      const query = activeSessionId ? `?activeSessionId=${encodeURIComponent(activeSessionId)}` : "";
+      return await this.request<OpenRemoteStatus>(`/openremote/status${query}`);
     } catch {
       return null;
     }
   }
 
-  async heartbeat() {
+  async heartbeat(activeSessionId?: string) {
     try {
-      return await this.request<OpenRemoteStatus>("/openremote/heartbeat", { method: "POST", body: JSON.stringify({}) });
+      return await this.request<OpenRemoteStatus>("/openremote/heartbeat", { method: "POST", body: JSON.stringify({ activeSessionId }) });
     } catch {
       return null;
     }

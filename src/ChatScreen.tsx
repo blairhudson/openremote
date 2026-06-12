@@ -1109,7 +1109,10 @@ function CommandPickerModal({
 }
 
 const PartLine = memo(function PartLine({ part, hasNewerMessage, isLive, patchDiffs, serverDirectory, onOpenPatch }: { part: NonNullable<MessageBundle["parts"]>[number]; hasNewerMessage: boolean; isLive: boolean; patchDiffs: PatchDiff[]; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
-  if (part.type === "text") return <Markdown style={markdownStyles}>{part.text}</Markdown>;
+  if (part.type === "text") {
+    const text = stripSystemReminderBlocks(part.text).trim();
+    return text ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
+  }
   if (part.type === "reasoning") return <ReasoningPartLine part={part} hasNewerMessage={hasNewerMessage} isLive={isLive} />;
   if (part.type === "tool") return <ToolPartLine part={part} serverDirectory={serverDirectory} onOpenPatch={onOpenPatch} />;
   if (part.type === "file") {
@@ -1187,12 +1190,13 @@ function SquareSpinner() {
 function reasoningTitle(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "reasoning" }>) {
   const metadataTitle = part.metadata?.title;
   if (typeof metadataTitle === "string" && metadataTitle.trim()) return metadataTitle.trim();
-  const firstLine = part.text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  const firstLine = stripSystemReminderBlocks(part.text).split(/\r?\n/).map((line) => line.trim()).find(Boolean);
   return firstLine || "Thinking";
 }
 
 function reasoningBodyText(text: string, title: string) {
-  const lines = text.split(/\r?\n/);
+  const cleanText = stripSystemReminderBlocks(text);
+  const lines = cleanText.split(/\r?\n/);
   const first = lines.findIndex((line) => line.trim());
   if (first === -1) return "";
   const normalizedTitle = title.trim().replace(/^#+\s*/, "");
@@ -1200,7 +1204,7 @@ function reasoningBodyText(text: string, title: string) {
   if (normalizedTitle && normalizedFirst === normalizedTitle) {
     return lines.slice(first + 1).join("\n").trimStart();
   }
-  return text;
+  return cleanText;
 }
 
 function ToolPartLine({ part, serverDirectory, onOpenPatch }: { part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>; serverDirectory?: string; onOpenPatch: (patch: PatchOpenPayload) => void }) {
@@ -1243,10 +1247,13 @@ function TodoOutputBlock({ output }: { output: string }) {
 
 function ToolOutputBlock({ preview, output }: { preview: string; output: string }) {
   const [open, setOpen] = useState(false);
-  const expandable = output.trimEnd() !== preview.trimEnd();
+  const cleanPreview = stripSystemReminderBlocks(preview).trimEnd();
+  const cleanOutput = stripSystemReminderBlocks(output).trimEnd();
+  if (!cleanPreview && !cleanOutput) return null;
+  const expandable = cleanOutput !== cleanPreview;
   return (
     <Pressable style={[styles.toolOutputBlock, expandable && styles.toolOutputBlockExpandable]} onPress={() => setOpen(true)}>
-      <Text selectable style={styles.toolOutputText}>{preview}</Text>
+      <Text selectable style={styles.toolOutputText}>{cleanPreview}</Text>
       {expandable ? (
         <View style={styles.toolOutputExpandHint}>
           <TerminalText tone="dim">tap to expand</TerminalText>
@@ -1261,7 +1268,7 @@ function ToolOutputBlock({ preview, output }: { preview: string; output: string 
                 <CommandButton label="close" tone="muted" onPress={() => setOpen(false)} />
               </View>
               <ScrollView style={styles.toolOutputScroll}>
-                <Text selectable style={styles.toolOutputModalText}>{output}</Text>
+                <Text selectable style={styles.toolOutputModalText}>{cleanOutput}</Text>
               </ScrollView>
             </Pressable>
           </Pressable>
@@ -1274,8 +1281,12 @@ function ToolOutputBlock({ preview, output }: { preview: string; output: string 
 function shellDisplayOutput(command: string, output: string, comment?: string) {
   const trimmedComment = comment?.trim();
   const trimmedCommand = command.trim();
-  const lines = [trimmedComment ? `# ${trimmedComment.replace(/^#+\s*/, "")}` : "", trimmedCommand ? `$ ${trimmedCommand}` : "", output.trimEnd()].filter(Boolean);
+  const lines = [trimmedComment ? `# ${trimmedComment.replace(/^#+\s*/, "")}` : "", trimmedCommand ? `$ ${trimmedCommand}` : "", stripSystemReminderBlocks(output).trimEnd()].filter(Boolean);
   return lines.join("\n");
+}
+
+function stripSystemReminderBlocks(value: string) {
+  return value.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "").trim();
 }
 
 function shouldRenderToolOutput(part: Extract<NonNullable<MessageBundle["parts"]>[number], { type: "tool" }>) {
@@ -1652,7 +1663,7 @@ function formatToolValue(value: unknown): string {
 function messageText(bundle: MessageBundle) {
   return (bundle.parts ?? [])
     .map((part) => {
-      if (part.type === "text" || part.type === "reasoning") return part.text;
+      if (part.type === "text" || part.type === "reasoning") return stripSystemReminderBlocks(part.text);
       if (part.type === "tool") return toolTitle(part);
       if (part.type === "file") return part.filename ?? part.source?.path ?? part.url;
       if (part.type === "patch") return `Patch ${part.files.join(", ")}`;

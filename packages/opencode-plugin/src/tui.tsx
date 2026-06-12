@@ -30,6 +30,34 @@ const proxyResumeStatePath = join(tmpdir(), "openremote-proxy-resume.json");
 const gatewayConfigPath = join(homedir(), ".config", "openremote", "gateway.json");
 const gatewayStatePath = join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "openremote", "gateway.json");
 
+function profileEnabled() {
+  return process.env.OPENCODE_REMOTE_PROFILE === "1" || process.env.OPENCODE_REMOTE_PROFILE === "true";
+}
+
+function profileThresholdMs() {
+  const value = Number(process.env.OPENCODE_REMOTE_PROFILE_THRESHOLD_MS ?? 50);
+  return Number.isFinite(value) && value >= 0 ? value : 50;
+}
+
+function profileLog(label: string, start: number) {
+  const duration = performance.now() - start;
+  if (duration >= profileThresholdMs()) console.error(`[openremote profile] ${label} ${duration.toFixed(1)}ms`);
+}
+
+function profileSpan<T>(label: string, fn: () => T): T {
+  if (!profileEnabled()) return fn();
+  const start = performance.now();
+  try {
+    const value = fn();
+    if (value && typeof (value as Promise<unknown>).then === "function") return (value as Promise<unknown>).finally(() => profileLog(label, start)) as T;
+    profileLog(label, start);
+    return value;
+  } catch (error) {
+    profileLog(label, start);
+    throw error;
+  }
+}
+
 function remoteSecret() {
   return process.env.OPENCODE_REMOTE_SECRET ?? "";
 }
@@ -167,13 +195,15 @@ function candidateOpenCodePorts() {
 }
 
 async function fetchWithTimeout(url: string, timeout = 1500) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    return await fetch(url, { headers: authHeaders(), signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  return profileSpan(`plugin.fetch ${new URL(url).pathname}`, async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      return await fetch(url, { headers: authHeaders(), signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }
 
 async function validOpenCodeTarget(port: number) {
@@ -217,6 +247,14 @@ function sessionIdFromRoute(api: TuiPluginApi) {
   return api.route.current.name === "session" ? api.route.current.params.sessionID : undefined;
 }
 
+function addSessionId(ids: string[], value: unknown) {
+  if (typeof value === "string" && value && !ids.includes(value)) ids.push(value);
+}
+
+function gatewayTargetBaseUrl() {
+  return cachedLocalTunnelTarget ?? `http://127.0.0.1:${candidateOpenCodePorts()[0] ?? 4096}`;
+}
+
 function qrText(value: string) {
   let output = "";
   qrcode.generate(value, { small: true }, (qr) => {
@@ -249,7 +287,12 @@ let cleanupInstalled = false;
 let cachedQrUrl = "";
 let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
-let gatewayPollTimer: ReturnType<typeof setInterval> | undefined;
+let gatewayHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+let gatewayUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+let gatewayUpdateInFlight = false;
+let gatewayUpdateDirty = false;
+const knownSessionIds = new Set<string>();
+const pendingQuestions = new Map<string, unknown>();
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
 const registeredSlotApis = new WeakSet<object>();
@@ -336,14 +379,16 @@ function gatewayConfigured() {
 }
 
 async function gatewayAdminFetch(pathname: string, init: RequestInit = {}) {
-  const state = gatewayRuntimeState();
-  if (!state) throw new Error("gateway not running");
-  const headers = new Headers(init.headers);
-  headers.set("authorization", `Bearer ${state.adminToken}`);
-  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-  const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, { ...init, headers, signal: AbortSignal.timeout(1500) });
-  if (!response.ok) throw new Error(`gateway ${pathname} failed: ${response.status}`);
-  return response.json();
+  return profileSpan(`plugin.gatewayAdmin ${pathname}`, async () => {
+    const state = gatewayRuntimeState();
+    if (!state) throw new Error("gateway not running");
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bearer ${state.adminToken}`);
+    if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+    const response = await fetch(`http://127.0.0.1:${state.appPort}${pathname}`, { ...init, headers, signal: AbortSignal.timeout(1500) });
+    if (!response.ok) throw new Error(`gateway ${pathname} failed: ${response.status}`);
+    return response.json();
+  });
 }
 
 async function gatewayAdminPost(pathname: string) {
@@ -371,26 +416,92 @@ function launchCommand() {
   return ["opencode", ...args];
 }
 
+function eventProperties(event: unknown) {
+  return event && typeof event === "object" ? (event as { properties?: unknown }).properties : undefined;
+}
+
+function eventSessionId(event: unknown) {
+  const properties = eventProperties(event);
+  return sessionIdFromContext(properties) || sessionIdFromContext(event);
+}
+
+function eventQuestion(event: unknown) {
+  const properties = eventProperties(event);
+  return properties && typeof properties === "object" ? properties : undefined;
+}
+
+function eventQuestionId(event: unknown) {
+  const question = eventQuestion(event) as { id?: unknown; requestID?: unknown; requestId?: unknown } | undefined;
+  const value = question?.id || question?.requestID || question?.requestId;
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function gatewayQuestions() {
+  return [...pendingQuestions.values()];
+}
+
+function rememberEventSession(event: unknown) {
+  const id = eventSessionId(event);
+  if (id) knownSessionIds.add(id);
+}
+
+function rememberQuestion(event: unknown) {
+  rememberEventSession(event);
+  const id = eventQuestionId(event);
+  const question = eventQuestion(event);
+  if (id && question) pendingQuestions.set(id, question);
+}
+
+function forgetQuestion(event: unknown) {
+  const id = eventQuestionId(event);
+  if (id) pendingQuestions.delete(id);
+}
+
+function scheduleGatewayUpdate(delay = 100) {
+  if (gatewayState() === "off") return;
+  if (gatewayUpdateTimer) clearTimeout(gatewayUpdateTimer);
+  gatewayUpdateTimer = setTimeout(() => {
+    gatewayUpdateTimer = undefined;
+    void registerGatewayInstance().catch(() => void refreshGatewayStatus().catch(() => undefined));
+  }, delay);
+  gatewayUpdateTimer.unref?.();
+}
+
 async function registerGatewayInstance() {
-  const targetBaseUrl = await resolveLocalTunnelTarget();
-  const body = {
-    instanceId: pluginInstanceId,
-    cwd: process.cwd(),
-    workspaceLabel: process.cwd().split(/[\\/]/).pop() || process.cwd(),
-    targetBaseUrl,
-    activeSessionIds: activeSessionIds(),
-    pid: process.pid,
-    launchCommand: launchCommand(),
-    upstreamAuthorization: authHeaders().authorization,
-  };
-  const status = await gatewayAdminFetch("/openremote/gateway/register", { method: "POST", body: JSON.stringify(body) });
-  setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
-  updateGatewayConnected(status.remoteAccess?.connected === true);
-  updateGatewayKeepAwake(status);
-  setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
-  setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
-  setGatewayState("registered");
-  requestRender();
+  return profileSpan("plugin.gateway.register", async () => {
+    if (gatewayUpdateInFlight) {
+      gatewayUpdateDirty = true;
+      return;
+    }
+    gatewayUpdateInFlight = true;
+    const body = {
+      instanceId: pluginInstanceId,
+      cwd: process.cwd(),
+      workspaceLabel: process.cwd().split(/[\\/]/).pop() || process.cwd(),
+      targetBaseUrl: gatewayTargetBaseUrl(),
+      activeSessionIds: activeSessionIds(),
+      questions: gatewayQuestions(),
+      pid: process.pid,
+      launchCommand: launchCommand(),
+      upstreamAuthorization: authHeaders().authorization,
+    };
+    try {
+      const status = await gatewayAdminFetch("/openremote/gateway/register", { method: "POST", body: JSON.stringify(body) });
+      setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
+      updateGatewayConnected(status.remoteAccess?.connected === true);
+      updateGatewayKeepAwake(status);
+      setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
+      setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
+      setGatewayState("registered");
+      requestRender();
+    } finally {
+      gatewayUpdateInFlight = false;
+      if (gatewayUpdateDirty) {
+        gatewayUpdateDirty = false;
+        scheduleGatewayUpdate(0);
+      }
+    }
+  });
 }
 
 function sessionUrl(baseUrl: string, sessionId: string | undefined) {
@@ -401,14 +512,16 @@ function sessionUrl(baseUrl: string, sessionId: string | undefined) {
 }
 
 async function refreshGatewayStatus() {
-  const status = await gatewayAdminFetch("/openremote/gateway/status");
-  setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
-  updateGatewayConnected(status.remoteAccess?.connected === true);
-  updateGatewayKeepAwake(status);
-  setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
-  setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
-  setGatewayState("registered");
-  requestRender();
+  return profileSpan("plugin.gateway.refreshStatus", async () => {
+    const status = await gatewayAdminFetch("/openremote/gateway/status");
+    setGatewayRemoteAccess(status.remoteAccess?.enabled ? "on" : "off");
+    updateGatewayConnected(status.remoteAccess?.connected === true);
+    updateGatewayKeepAwake(status);
+    setGatewayQrUrl(status.remoteAccess?.connected ? status.remoteAccess?.appUrl ?? status.appUrl ?? "" : status.remoteAccess?.localAppUrl ?? status.remoteAccess?.appUrl ?? status.appUrl ?? "");
+    setGatewayQrSecondsRemaining(Math.max(0, Number(status.remoteAccess?.secondsRemaining ?? 0)));
+    setGatewayState("registered");
+    requestRender();
+  });
 }
 
 function gatewayTunnelReadyUrl(status: unknown) {
@@ -503,9 +616,9 @@ async function initGateway() {
   }
   try {
     await registerGatewayInstance();
-    if (!gatewayPollTimer) {
-      gatewayPollTimer = setInterval(() => void registerGatewayInstance().catch(() => void refreshGatewayStatus().catch(() => undefined)), 1000);
-      gatewayPollTimer.unref?.();
+    if (!gatewayHeartbeatTimer) {
+      gatewayHeartbeatTimer = setInterval(() => scheduleGatewayUpdate(0), 30000);
+      gatewayHeartbeatTimer.unref?.();
     }
     return true;
   } catch {
@@ -680,7 +793,10 @@ function applyProxyResumeState() {
 }
 
 function activeSessionIds() {
-  return visibleSessionId ? [visibleSessionId] : [];
+  const ids: string[] = [];
+  addSessionId(ids, visibleSessionId);
+  for (const id of knownSessionIds) addSessionId(ids, id);
+  return ids;
 }
 
 function pluginStatus() {
@@ -1552,6 +1668,40 @@ function installEventHandlers(api: TuiPluginApi) {
     const currentApi = latestApi;
     if (!currentApi) return;
     markRemoteWaiting(currentApi);
+    scheduleGatewayUpdate(0);
+  });
+  api.event.on("session.created", (event) => {
+    rememberEventSession(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("session.updated", (event) => {
+    rememberEventSession(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("session.status", (event) => {
+    rememberEventSession(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("session.idle", (event) => {
+    rememberEventSession(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("session.deleted", (event) => {
+    const id = eventSessionId(event);
+    if (id) knownSessionIds.delete(id);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("question.asked", (event) => {
+    rememberQuestion(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("question.replied", (event) => {
+    forgetQuestion(event);
+    scheduleGatewayUpdate();
+  });
+  api.event.on("question.rejected", (event) => {
+    forgetQuestion(event);
+    scheduleGatewayUpdate();
   });
 }
 
@@ -1634,7 +1784,12 @@ function installCommands(api: TuiPluginApi) {
 }
 
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
-  visibleSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
+  const nextSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
+  if (nextSessionId !== visibleSessionId) {
+    visibleSessionId = nextSessionId;
+    if (visibleSessionId) knownSessionIds.add(visibleSessionId);
+    scheduleGatewayUpdate();
+  }
   const gatewayRegistered = () => gatewayState() === "registered";
   const effectiveConnected = () => gatewayConnected() || remoteConnected();
   return (
