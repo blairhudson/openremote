@@ -39,6 +39,7 @@ const tunnelOptions: { mode: TunnelMode; label: string; description: string }[] 
 
 const agentToggleOptions: { mode: AgentToggleMode; label: string; description: string }[] = [
   { mode: "builtin", label: "Build / Plan", description: "cycle only built-in Build and Plan agents" },
+  { mode: "primary", label: "Primary", description: "cycle only agents with mode: primary" },
   { mode: "all", label: "All", description: "cycle every configured OpenCode agent" },
 ];
 

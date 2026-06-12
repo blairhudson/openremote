@@ -12,7 +12,7 @@ export type ConnectionSettings = {
 
 export type KeepAwakeMode = "auto" | "connected" | "off";
 export type TunnelMode = "off" | "cloudflare";
-export type AgentToggleMode = "builtin" | "all";
+export type AgentToggleMode = "builtin" | "primary" | "all";
 
 const key = "openremote.connection";
 const localConnectionKey = "openremote.local-connection";
@@ -119,7 +119,7 @@ export async function saveTunnelMode(mode: TunnelMode) {
 
 export async function loadAgentToggleMode() {
   const value = await getItem(agentToggleModeKey);
-  if (value === "all") return value;
+  if (value === "builtin" || value === "primary" || value === "all") return value;
   return "builtin";
 }
 
