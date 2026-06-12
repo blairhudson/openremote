@@ -42,7 +42,7 @@ export function SessionsScreen({ sessions, questions, serverUrl, busy, allowNewS
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => <SessionRow index={index} session={item} onPress={() => onOpen(item)} />}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<TerminalText tone="muted">{allowNewSessions ? "No sessions. Tap `new`." : "No active desktop session."}</TerminalText>}
+        ListEmptyComponent={<TerminalText tone="muted" style={styles.sessionsEmpty}>{allowNewSessions ? "No sessions. Tap `new`." : "No active desktop session."}</TerminalText>}
         ListFooterComponent={(
           <>
             <RailPanel tone="pink" style={styles.inboxPanel}>
@@ -138,6 +138,9 @@ const styles = StyleSheet.create({
   },
   sessionsList: {
     flexShrink: 1,
+  },
+  sessionsEmpty: {
+    textAlign: "center",
   },
   separator: {
     height: 1,

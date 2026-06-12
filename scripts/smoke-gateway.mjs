@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +41,10 @@ function run(args, options = {}) {
 async function jsonStatus(options = {}) {
   const result = await run(["gateway", "status", "--json"], options);
   return JSON.parse(result.stdout);
+}
+
+async function gatewayState(options = {}) {
+  return JSON.parse(await readFile(resolve((options.env || env).XDG_STATE_HOME, "openremote", "gateway.json"), "utf8"));
 }
 
 function basic(username, password) {
@@ -92,7 +96,16 @@ try {
   assert(unauth.status === 401, `/openremote/status unauth expected 401, got ${unauth.status}`);
 
   const authHeader = basic(started.remoteAccess.username, started.remoteAccess.password);
-  const first = await request(started, "/openremote/status", {
+  const state = await gatewayState();
+  const register = await request(started, "/openremote/gateway/register", {
+    authorization: `Bearer ${state.adminToken}`,
+    "content-type": "application/json",
+  }, {
+    method: "POST",
+    body: JSON.stringify({ instanceId: "smoke-instance", cwd: root, targetBaseUrl: "http://127.0.0.1:4096", activeSessionIds: ["ses_wanted"], questions: [] }),
+  });
+  assert(register.status === 200, `/openremote/gateway/register expected 200, got ${register.status}`);
+  const first = await request(started, "/openremote/status?activeSessionId=ses_stale", {
     authorization: authHeader,
     "x-openremote-client": "smoke-client-a",
   });
@@ -101,6 +114,8 @@ try {
   assert(typeof appStatus.instanceId === "string", "app status instanceId missing");
   assert(Array.isArray(appStatus.activeSessionIds), "app status activeSessionIds must be array");
   assert(appStatus.connected === true, "app status connected should be true after auth");
+  assert(appStatus.activeSessionIds.includes("ses_wanted"), "app status should include registered OpenRemote session");
+  assert(!appStatus.activeSessionIds.includes("ses_stale"), "app status should not include unregistered requested session");
   assert(Number.isInteger(appStatus.heartbeatTimeoutSeconds), "app status heartbeatTimeoutSeconds missing");
   assert(Number.isInteger(appStatus.resumeSeconds), "app status resumeSeconds missing");
   assert(appStatus.keepAwake?.owner === "gateway", "app status keepAwake owner missing");
@@ -164,6 +179,14 @@ try {
     "x-openremote-client": "smoke-resume-client",
   });
   assert(dynamicFirst.status === 200, `/openremote/status dynamic auth expected 200, got ${dynamicFirst.status}`);
+  await run(["gateway", "restart"], { env: dynamicEnv });
+  const dynamicRestarted = await jsonStatus({ env: dynamicEnv });
+  assert(dynamicRestarted.appPort === dynamicStarted.appPort, `dynamic restart should reuse port ${dynamicStarted.appPort}, got ${dynamicRestarted.appPort}`);
+  const dynamicAfterRestart = await request(dynamicRestarted, "/openremote/status", {
+    authorization: dynamicAuth,
+    "x-openremote-client": "smoke-resume-client",
+  });
+  assert(dynamicAfterRestart.status === 200, `/openremote/status dynamic auth after restart expected 200, got ${dynamicAfterRestart.status}`);
   const dynamicDisconnect = await request(dynamicStarted, "/openremote/disconnect", {
     authorization: dynamicAuth,
     "x-openremote-client": "smoke-resume-client",

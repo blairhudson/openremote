@@ -105,6 +105,11 @@ async function gatewayState() {
   }
 }
 
+async function writeGatewayState(state) {
+  const { remoteClients: _remoteClients, ...serializable } = state;
+  await writeJson(gatewayStatePath, serializable);
+}
+
 function gatewayAuthHeader(config) {
   return `Basic ${Buffer.from(`${config.username}:${config.password}`).toString("base64")}`;
 }
@@ -409,7 +414,8 @@ function selectedGatewayInstance(req, url, instances, state) {
   if (selectedId) return gatewayInstanceById(instances, selectedId);
   const pathInstance = instanceForSession(instances, sessionIdFromGatewayPath(url.pathname));
   if (pathInstance) return pathInstance;
-  const clientInstance = instanceForSession(instances, gatewayClientForRequest(state, req)?.activeSessionId);
+  const clientSessionId = gatewayClientForRequest(state, req)?.activeSessionId;
+  const clientInstance = instanceForSession(instances, clientSessionId);
   return clientInstance || instances[0];
 }
 
@@ -459,7 +465,6 @@ function gatewayOpenRemoteStatus(state, config, instances, req) {
     const activeSessionId = req ? gatewayClientForRequest(state, req)?.activeSessionId : undefined;
     const instance = instanceForSession(instances, activeSessionId) || instances[0];
     const activeSessionIds = Array.isArray(instance?.activeSessionIds) ? [...instance.activeSessionIds] : [];
-    if (activeSessionId && !activeSessionIds.includes(activeSessionId)) activeSessionIds.unshift(activeSessionId);
     updateGatewayKeepAwake(state, config, gatewayConnected(state));
     return {
       instanceId: instance?.instanceId || "gateway",
@@ -601,11 +606,14 @@ function promoteGatewayAuth(req, state, config, auth) {
   }
 }
 
-function rememberGatewayActiveSession(req, state, activeSessionId) {
+function rememberGatewayActiveSession(req, state, instances, activeSessionId) {
   if (!activeSessionId || typeof activeSessionId !== "string") return;
+  if (!instanceForSession(instances, activeSessionId)) return;
   const client = gatewayClientForRequest(state, req);
   if (!client) return;
+  if (client.activeSessionId === activeSessionId) return;
   client.activeSessionId = activeSessionId;
+  return true;
 }
 
 function rotateGatewaySecret(state, config, force = false) {
@@ -635,7 +643,7 @@ function markGatewayConnected(req, state, config, auth = { ok: true, kind: "curr
   const beforePassword = config.password;
   const beforeClient = state.connectedClientId;
   promoteGatewayAuth(req, state, config, auth);
-  if (beforePassword !== config.password || beforeClient !== state.connectedClientId) void writeJson(gatewayConfigPath, config);
+  return beforePassword !== config.password || beforeClient !== state.connectedClientId;
 }
 
 function markGatewayDisconnected(state, config, allowResume = false, clientId = undefined) {
@@ -852,14 +860,14 @@ function requestUrl(url, headers = {}) {
 }
 
 function listenGatewayServer(server, preferredPort) {
-  const ports = preferredPort > 0 ? [preferredPort, 0] : [0];
+  const ports = preferredPort > 0 ? Array.from({ length: 20 }, () => preferredPort).concat(0) : [0];
   return new Promise((resolve, reject) => {
     const tryPort = (index) => {
       const port = ports[index] ?? 0;
       const onError = (error) => {
         server.off("listening", onListening);
         if ((error?.code === "EADDRINUSE" || error?.code === "EACCES") && index + 1 < ports.length) {
-          tryPort(index + 1);
+          setTimeout(() => tryPort(index + 1), port === preferredPort ? 100 : 0).unref?.();
           return;
         }
         reject(error);
@@ -944,8 +952,20 @@ async function startGatewayCloudflareTunnel(state, config) {
 
 async function runGatewayDaemon() {
   const config = await gatewayConfig();
+  const previousState = await gatewayState();
   config.remoteAccessMode = config.remoteAccessMode || "local";
-  const state = { pid: process.pid, appPort: 0, adminToken: token(), updatedAt: Date.now(), tunnel: { status: "off", log: "off", url: "" }, remoteClients: new Set(), gatewayClients: [], keepAwakeEnabled: false, keepAwakeMode: gatewayKeepAwakeMode(config) };
+  const state = {
+    ...(previousState && typeof previousState === "object" ? previousState : {}),
+    pid: process.pid,
+    appPort: 0,
+    adminToken: token(),
+    updatedAt: Date.now(),
+    tunnel: { status: "off", log: "off", url: "" },
+    remoteClients: new Set(),
+    gatewayClients: Array.isArray(previousState?.gatewayClients) ? previousState.gatewayClients : [],
+    keepAwakeEnabled: false,
+    keepAwakeMode: gatewayKeepAwakeMode(config),
+  };
   const instances = [];
   const workspaces = Array.isArray(config.workspaces) ? config.workspaces : [];
   const rotationTimer = setInterval(async () => {
@@ -962,7 +982,10 @@ async function runGatewayDaemon() {
         res.end("Unauthorized");
         return;
       }
-      if (auth.ok) markGatewayConnected(req, state, config, auth);
+      if (auth.ok && markGatewayConnected(req, state, config, auth)) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
       const changed = expireGatewayClient(state, config) || rotateGatewaySecret(state, config);
       if (changed) await writeJson(gatewayConfigPath, config);
       sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
@@ -1140,9 +1163,13 @@ async function runGatewayDaemon() {
         sendJson(res, 429, { ok: false, error: "too_many_clients" });
         return;
       }
-      markGatewayConnected(req, state, config, auth);
+      let changed = markGatewayConnected(req, state, config, auth);
       const payload = req.method === "POST" ? await readJsonRequest(req) : {};
-      rememberGatewayActiveSession(req, state, payload.activeSessionId || url.searchParams.get("activeSessionId"));
+      changed = rememberGatewayActiveSession(req, state, instances, payload.activeSessionId || url.searchParams.get("activeSessionId")) || changed;
+      if (changed) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
       sendJson(res, 200, gatewayOpenRemoteStatus(state, config, instances, req));
       return;
     }
@@ -1157,7 +1184,10 @@ async function runGatewayDaemon() {
         res.end("Unauthorized");
         return;
       }
-      if (markGatewayDisconnected(state, config, false, auth.clientId)) await writeJson(gatewayConfigPath, config);
+      if (markGatewayDisconnected(state, config, false, auth.clientId)) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
       sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
       return;
     }
@@ -1176,7 +1206,10 @@ async function runGatewayDaemon() {
       sendJson(res, 429, { ok: false, error: "too_many_clients" });
       return;
     }
-    if (!admin) markGatewayConnected(req, state, config, auth);
+    if (!admin && markGatewayConnected(req, state, config, auth)) {
+      await writeGatewayState(state);
+      await writeJson(gatewayConfigPath, config);
+    }
     const instance = selectedGatewayInstance(req, url, instances, state);
     if (!instance) {
       sendJson(res, 503, { ok: false, error: "no_registered_instances" });
@@ -1191,7 +1224,7 @@ async function runGatewayDaemon() {
   config.appPort = state.appPort;
   ensureGatewaySecretRotation(state, config);
   publishLanService(state.appPort);
-  await writeJson(gatewayStatePath, state);
+  await writeGatewayState(state);
   await writeJson(gatewayConfigPath, config);
   if (config.remoteAccessEnabled !== false && config.remoteAccessMode === "cloudflare") void startGatewayCloudflareTunnel(state, config);
   if (process.send) process.send({ ready: true, state });
@@ -1203,7 +1236,6 @@ async function runGatewayDaemon() {
     stopGatewayKeepAwake(state);
     stopGatewayTunnel(state, state.tunnelProcess);
     unpublishLanService();
-    try { await writeFile(gatewayStatePath, ""); } catch {}
   };
   const shutdown = () => {
     server.close(() => process.exit(0));
@@ -1315,7 +1347,7 @@ async function stopGateway(options = {}) {
     process.kill(state.pid, "SIGTERM");
   } catch {
     if (!options.quiet) console.log("OpenRemote Gateway is not running");
-    try { await writeFile(gatewayStatePath, ""); } catch {}
+    if (!options.preserveState) try { await writeFile(gatewayStatePath, ""); } catch {}
     return;
   }
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -1323,17 +1355,17 @@ async function stopGateway(options = {}) {
     try {
       await fetchGatewayStatus(state);
     } catch {
-      try { await writeFile(gatewayStatePath, ""); } catch {}
+      if (!options.preserveState) try { await writeFile(gatewayStatePath, ""); } catch {}
       if (!options.quiet) console.log("OpenRemote Gateway stopped");
       return;
     }
   }
-  try { await writeFile(gatewayStatePath, ""); } catch {}
+  if (!options.preserveState) try { await writeFile(gatewayStatePath, ""); } catch {}
   if (!options.quiet) console.log("OpenRemote Gateway stopped");
 }
 
 async function restartGateway() {
-  await stopGateway({ quiet: true });
+  await stopGateway({ quiet: true, preserveState: true });
   await startGateway();
 }
 

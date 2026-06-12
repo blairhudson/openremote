@@ -291,7 +291,7 @@ let gatewayHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let gatewayUpdateTimer: ReturnType<typeof setTimeout> | undefined;
 let gatewayUpdateInFlight = false;
 let gatewayUpdateDirty = false;
-const knownSessionIds = new Set<string>();
+const remoteSessionIds = new Set<string>();
 const pendingQuestions = new Map<string, unknown>();
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
@@ -436,20 +436,30 @@ function eventQuestionId(event: unknown) {
   return typeof value === "string" && value ? value : undefined;
 }
 
+function questionSessionId(question: unknown) {
+  return sessionIdFromContext(question);
+}
+
+function openRemoteSessionActive(sessionId: string | undefined) {
+  if (!sessionId) return false;
+  return visibleSessionId === sessionId || remoteSessionIds.has(sessionId);
+}
+
+function prunePendingQuestions() {
+  for (const [id, question] of pendingQuestions) {
+    if (!openRemoteSessionActive(questionSessionId(question))) pendingQuestions.delete(id);
+  }
+}
+
 function gatewayQuestions() {
+  prunePendingQuestions();
   return [...pendingQuestions.values()];
 }
 
-function rememberEventSession(event: unknown) {
-  const id = eventSessionId(event);
-  if (id) knownSessionIds.add(id);
-}
-
 function rememberQuestion(event: unknown) {
-  rememberEventSession(event);
   const id = eventQuestionId(event);
   const question = eventQuestion(event);
-  if (id && question) pendingQuestions.set(id, question);
+  if (id && question && openRemoteSessionActive(questionSessionId(question))) pendingQuestions.set(id, question);
 }
 
 function forgetQuestion(event: unknown) {
@@ -795,7 +805,7 @@ function applyProxyResumeState() {
 function activeSessionIds() {
   const ids: string[] = [];
   addSessionId(ids, visibleSessionId);
-  for (const id of knownSessionIds) addSessionId(ids, id);
+  for (const id of remoteSessionIds) addSessionId(ids, id);
   return ids;
 }
 
@@ -1584,8 +1594,23 @@ function isOpenRemoteConnectedToast(event: unknown) {
 function openRemoteConnectedDevice(event: unknown) {
   const message = eventString(event, "message");
   if (!message.startsWith("openremote connected")) return undefined;
-  const device = message.slice("openremote connected".length).replace(/^\s*(to|:)\s*/, "").replace(/\s+keepawake=(auto|connected|off)\b/, "").trim();
+  const device = message.slice("openremote connected".length).replace(/^\s*(to|:)\s*/, "").replace(/\s+session=ses_[A-Za-z0-9_-]+\b/, "").replace(/\s+keepawake=(auto|connected|off)\b/, "").trim();
   return device || undefined;
+}
+
+function openRemoteSessionId(event: unknown) {
+  const value = `${eventString(event, "message")} ${openRemoteCommand(event)}`;
+  return value.match(/\bsession=(ses_[A-Za-z0-9_-]+)\b/)?.[1];
+}
+
+function markOpenRemoteSession(sessionId: string | undefined) {
+  if (sessionId) remoteSessionIds.add(sessionId);
+}
+
+function clearOpenRemoteSessions() {
+  if (!remoteSessionIds.size) return;
+  remoteSessionIds.clear();
+  prunePendingQuestions();
 }
 
 function isOpenRemoteDisconnectedToast(event: unknown) {
@@ -1620,9 +1645,21 @@ function installEventHandlers(api: TuiPluginApi) {
   api.event.on("tui.toast.show", (event) => {
     const currentApi = latestApi;
     if (!currentApi) return;
-    if (isOpenRemoteConnectedToast(event)) markRemoteConnected(currentApi, openRemoteConnectedDevice(event));
-    if (isOpenRemoteWaitingToast(event)) markRemoteWaiting(currentApi);
-    if (isOpenRemoteDisconnectedToast(event)) markRemoteDisconnected(currentApi);
+    if (isOpenRemoteConnectedToast(event)) {
+      markOpenRemoteSession(openRemoteSessionId(event));
+      markRemoteConnected(currentApi, openRemoteConnectedDevice(event));
+      scheduleGatewayUpdate();
+    }
+    if (isOpenRemoteWaitingToast(event)) {
+      clearOpenRemoteSessions();
+      markRemoteWaiting(currentApi);
+      scheduleGatewayUpdate();
+    }
+    if (isOpenRemoteDisconnectedToast(event)) {
+      clearOpenRemoteSessions();
+      markRemoteDisconnected(currentApi);
+      scheduleGatewayUpdate();
+    }
     const mode = openRemoteKeepAwakeMode(event);
     if (mode) setKeepAwakeModeCommand(currentApi, mode);
     const tunnelCommand = openRemoteTunnelCommand(event);
@@ -1644,8 +1681,16 @@ function installEventHandlers(api: TuiPluginApi) {
     if (!currentApi) return;
     const command = openRemoteCommand(event);
     if (command === "openremote.connected") markRemoteConnected(currentApi);
-    if (command === "openremote.waiting") markRemoteWaiting(currentApi);
-    if (command === "openremote.disconnected") markRemoteDisconnected(currentApi);
+    if (command === "openremote.waiting") {
+      clearOpenRemoteSessions();
+      markRemoteWaiting(currentApi);
+      scheduleGatewayUpdate();
+    }
+    if (command === "openremote.disconnected") {
+      clearOpenRemoteSessions();
+      markRemoteDisconnected(currentApi);
+      scheduleGatewayUpdate();
+    }
     if (command === "openremote.keepawake.auto") setKeepAwakeModeCommand(currentApi, "auto");
     if (command === "openremote.keepawake.connected") setKeepAwakeModeCommand(currentApi, "connected");
     if (command === "openremote.keepawake.off") setKeepAwakeModeCommand(currentApi, "off");
@@ -1670,25 +1715,10 @@ function installEventHandlers(api: TuiPluginApi) {
     markRemoteWaiting(currentApi);
     scheduleGatewayUpdate(0);
   });
-  api.event.on("session.created", (event) => {
-    rememberEventSession(event);
-    scheduleGatewayUpdate();
-  });
-  api.event.on("session.updated", (event) => {
-    rememberEventSession(event);
-    scheduleGatewayUpdate();
-  });
-  api.event.on("session.status", (event) => {
-    rememberEventSession(event);
-    scheduleGatewayUpdate();
-  });
-  api.event.on("session.idle", (event) => {
-    rememberEventSession(event);
-    scheduleGatewayUpdate();
-  });
   api.event.on("session.deleted", (event) => {
     const id = eventSessionId(event);
-    if (id) knownSessionIds.delete(id);
+    if (id) remoteSessionIds.delete(id);
+    prunePendingQuestions();
     scheduleGatewayUpdate();
   });
   api.event.on("question.asked", (event) => {
@@ -1787,7 +1817,6 @@ const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiTheme
   const nextSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
   if (nextSessionId !== visibleSessionId) {
     visibleSessionId = nextSessionId;
-    if (visibleSessionId) knownSessionIds.add(visibleSessionId);
     scheduleGatewayUpdate();
   }
   const gatewayRegistered = () => gatewayState() === "registered";

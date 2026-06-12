@@ -200,6 +200,12 @@ export default function App() {
     return nextSessions.filter((session) => activeIds.has(session.id));
   }
 
+  function filterActiveQuestions(nextQuestions: QuestionRequest[], status = openRemoteStatusRef.current) {
+    if (!status) return nextQuestions;
+    const activeIds = new Set(status.activeSessionIds);
+    return nextQuestions.filter((question) => activeIds.has(question.sessionID));
+  }
+
   function sameActiveSessionIds(left: OpenRemoteStatus | null, right: OpenRemoteStatus | null) {
     if (!left || !right) return left === right;
     if (left.instanceId !== right.instanceId) return false;
@@ -213,6 +219,7 @@ export default function App() {
     setOpenRemoteStatus(status);
     if (sameActiveSessionIds(previous, status)) return;
     setSessions((current) => filterActiveSessions(current, status));
+    setQuestions((current) => filterActiveQuestions(current, status));
     if (activeRef.current && status && !status.activeSessionIds.includes(activeRef.current.id)) {
       activeRef.current = null;
       setActive(null);
@@ -468,6 +475,7 @@ export default function App() {
       for (const event of events) {
         if (event.type === "question.asked") {
           const request = event.properties;
+          if (!filterActiveQuestions([request]).length) continue;
           const index = next.findIndex((item) => item.id === request.id);
           if (index === -1) next = [...next, request];
           else {
@@ -657,7 +665,7 @@ export default function App() {
       setPermissions(nextPermissions);
       const nextQuestions = await target.questions().catch(() => []);
       if (!isCurrentGeneration(generation)) return;
-      setQuestions(nextQuestions);
+      setQuestions(filterActiveQuestions(nextQuestions, status));
       const visibleSessionId = sessionId && visibleSessions.some((item) => item.id === sessionId) ? sessionId : undefined;
       if (visibleSessionId) {
         const nextMessages = await target.messages(visibleSessionId);
@@ -930,7 +938,7 @@ function upsertMessage(messages: MessageBundle[], info: Message) {
 function announceSession(client: OpencodeClient, session: Session, keepAwakeMode: KeepAwakeMode) {
   const device = deviceName();
   void client.executeTuiCommand("openremote.connected").catch(() => undefined);
-  void client.showToast(`openremote connected: ${device} keepawake=${keepAwakeMode}`).catch(() => undefined);
+  void client.showToast(`openremote connected: ${device} session=${session.id} keepawake=${keepAwakeMode}`).catch(() => undefined);
 }
 
 function announceWaiting(client: OpencodeClient, showToast = true, keepAwakeMode: KeepAwakeMode = "auto") {
