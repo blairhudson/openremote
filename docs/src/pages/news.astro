@@ -59,6 +59,16 @@ const pageDescription = "OpenRemote release updates, app-store progress, and pro
 
       <section class="roadmap-section news-section" aria-label="OpenRemote news posts">
         <article class="news-post">
+          <time datetime="2026-06-14">June 14, 2026</time>
+          <h2>Dev Servers with OpenRemote Gateway</h2>
+          <p>OpenRemote can now show dev servers started from OpenCode and open them from the app.</p>
+          <p>This works through OpenRemote Gateway. The gateway detects local servers associated with your OpenCode workspace, creates a short-lived forwarding link, and proxies the dev server through the same authenticated OpenRemote connection.</p>
+          <p>The goal is simple: if OpenCode starts a local web app, you should be able to preview it from your phone without copying ports, opening extra tunnels, or exposing the server directly.</p>
+          <p>This also gives OpenRemote a clearer direction for gateway features. Sessions are still the center of the app, but the useful work around a session often includes a running preview, a docs site, or another local service.</p>
+          <p>Follow the feature on the <a class="inline-link" href="/roadmap">OpenRemote roadmap</a>, or read the <a class="inline-link" href="/docs/gateway">OpenRemote Gateway guide</a>.</p>
+        </article>
+
+        <article class="news-post">
           <time datetime="2026-06-09">June 9, 2026</time>
           <h2>Introducing OpenRemote Gateway</h2>
           <p>I started OpenRemote because I wanted a simple way to check in on OpenCode from my phone while away from my desk.</p>
