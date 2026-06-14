@@ -14,6 +14,7 @@ export const docsNavItems: (DocsNavLink | DocsNavGroup)[] = [
   { href: "/docs/plugin", label: "OpenCode Plugin" },
   { href: "/docs/gateway", label: "OpenRemote Gateway" },
   { href: "/docs/remote-tunnels", label: "Remote tunnels" },
+  { href: "/docs/dev-servers", label: "Dev servers" },
   {
     label: "Self-hosting",
     items: [

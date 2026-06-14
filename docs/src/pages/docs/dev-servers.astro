@@ -1,0 +1,135 @@
+---
+import "../../styles/global.css";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+
+const repoUrl = "https://github.com/blairhudson/openremote";
+const siteUrl = "https://openremote.blairhudson.com";
+const pageTitle = "OpenRemote Dev Servers";
+const pageDescription = "Open dev servers started from OpenCode through OpenRemote Gateway port forwarding.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#151718" />
+    <meta property="og:site_name" content="OpenRemote" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content={`${siteUrl}/docs/dev-servers`} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={`${siteUrl}/og-image.jpg`} />
+    <link rel="canonical" href={`${siteUrl}/docs/dev-servers`} />
+    <link rel="icon" type="image/svg+xml" href="/openremote-icon.svg" />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <input id="docs-menu-toggle" class="docs-menu-toggle" type="checkbox" aria-hidden="true" />
+    <nav class="topbar" aria-label="Primary navigation">
+        <div class="topbar-inner">
+          <div class="topbar-brand-row">
+            <a class="brand" href="/" aria-label="OpenRemote home">
+              <img src="/openremote-wordmark.svg" alt="openremote" />
+            </a>
+            <label class="docs-menu-button" for="docs-menu-toggle" aria-label="Toggle docs navigation" role="button" tabindex="0">
+              <span></span>
+              <span></span>
+              <span></span>
+            </label>
+          </div>
+          <div class="nav-links">
+            <a href="/docs">docs</a>
+            <a href="/news">news</a>
+            <a href="/roadmap">roadmap</a>
+            <a class="nav-icon" href={repoUrl} aria-label="GitHub" target="_blank" rel="noreferrer">
+              <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
+        </div>
+    </nav>
+    <label class="docs-menu-backdrop" for="docs-menu-toggle" aria-label="Close docs navigation"></label>
+
+    <main class="page-shell docs-page-shell">
+      <div class="docs-layout">
+        <DocsSidebar />
+
+        <article class="docs-content">
+          <header class="docs-header">
+            <h1>Dev servers</h1>
+            <p>Dev servers let OpenRemote open local web apps, docs sites, and previews started from OpenCode through OpenRemote Gateway.</p>
+          </header>
+
+          <div class="doc-card">
+            <p><strong>Work in progress.</strong> OpenRemote Gateway is currently supported only when building OpenRemote from source.</p>
+          </div>
+
+          <section class="guide-section">
+            <h2>How it works</h2>
+            <ul class="guide-list">
+              <li>OpenCode starts a local server in your workspace, for example Vite, Astro, Next.js, or another preview command.</li>
+              <li>The OpenRemote plugin reports workspace-owned listeners to the gateway.</li>
+              <li>The app shows those servers on the connected session screen.</li>
+              <li>When you open one, the gateway creates a short-lived forwarding link and proxies the server through the existing authenticated OpenRemote connection.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Setup</h2>
+            <p>Use <a class="inline-link" href="/docs/gateway">OpenRemote Gateway</a>. Dev server forwarding is a gateway feature and is not available through direct plugin-only connections.</p>
+            <ol class="guide-list">
+              <li>Start the gateway with <code>oo gateway start</code>.</li>
+              <li>Start OpenCode in your workspace.</li>
+              <li>Connect the app to the gateway.</li>
+              <li>Start a dev server from that OpenCode workspace.</li>
+              <li>Open the server from the app when it appears under the connected session.</li>
+            </ol>
+          </section>
+
+          <section class="guide-section">
+            <h2>What gets shown</h2>
+            <p>OpenRemote only shows listeners associated with OpenCode or the active workspace. It should not list every open port on your machine.</p>
+            <ul class="guide-list">
+              <li>OpenCode child processes can be shown.</li>
+              <li>Detached workspace processes can be shown when their working directory belongs to the workspace.</li>
+              <li>Internal OpenRemote gateway and OpenCode service ports are hidden.</li>
+            </ul>
+          </section>
+
+          <section class="guide-section">
+            <h2>Opening a preview</h2>
+            <p>OpenRemote opens dev servers in the in-app browser sheet when supported by the platform. The gateway keeps the preview behind OpenRemote auth and forwards root assets, redirects, and websocket traffic needed by common dev servers.</p>
+            <p>If a server does not appear, restart the dev command from the OpenCode workspace and check the gateway TUI. If it still does not appear, confirm the process working directory is inside the workspace.</p>
+          </section>
+
+          <section class="guide-section">
+            <h2>Security</h2>
+            <p>Dev server forwarding is for local preview access through your authenticated OpenRemote connection. It is not a public deployment path.</p>
+            <ul class="guide-list">
+              <li>The forwarding token is short-lived.</li>
+              <li>The gateway forwards only to discovered local listeners.</li>
+              <li>Remote access still depends on the same OpenRemote gateway authentication.</li>
+            </ul>
+          </section>
+
+          <footer class="footer docs-footer">
+            <span>OpenRemote &copy; Blair Hudson 2026 built with &lt;3, OpenCode and OpenRemote</span>
+            <span><a class="inline-link" href="/privacy">Privacy</a></span>
+            <span class="footer-notice">OpenRemote is an independent project by Blair Hudson. It is not built by the OpenCode team and is not affiliated with OpenCode. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official OpenCode information.</span>
+          </footer>
+        </article>
+      </div>
+    </main>
+  </body>
+</html>
