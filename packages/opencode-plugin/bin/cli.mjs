@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { intro, outro, select, confirm, note, spinner, isCancel, cancel } from "@clack/prompts";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { execFile, spawn } from "node:child_process";
 import { Resolver } from "node:dns/promises";
 import { homedir, networkInterfaces, platform } from "node:os";
 import { createServer, request } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { connect as connectNet } from "node:net";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
@@ -50,10 +51,12 @@ const serverPlugin = "opencode-openremote";
 const tuiPlugin = "opencode-openremote/tui";
 const serverSchema = "https://opencode.ai/config.json";
 const tuiSchema = "https://opencode.ai/tui.json";
-const gatewayConfigDir = path.join(homedir(), ".config", "openremote");
+const gatewayHomeDir = process.env.HOME || homedir();
+const gatewayConfigDir = path.join(process.env.XDG_CONFIG_HOME || path.join(gatewayHomeDir, ".config"), "openremote");
 const gatewayConfigPath = path.join(gatewayConfigDir, "gateway.json");
 const gatewayStateDir = path.join(process.env.XDG_STATE_HOME || path.join(homedir(), ".local", "state"), "openremote");
 const gatewayStatePath = path.join(gatewayStateDir, "gateway.json");
+const gatewayLogPath = path.join(gatewayStateDir, "gateway.log");
 const defaultHeartbeatTimeoutSeconds = 30;
 const defaultResumeSeconds = 28800;
 let bonjour;
@@ -253,6 +256,19 @@ function decodedBasicAuth(req) {
   return { username: decoded.slice(0, split), password: decoded.slice(split + 1) };
 }
 
+function cookieValue(req, name) {
+  const cookie = headerValue(req.headers.cookie);
+  if (!cookie) return undefined;
+  for (const part of cookie.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) {
+      try { return decodeURIComponent(rest.join("=")); }
+      catch { return undefined; }
+    }
+  }
+  return undefined;
+}
+
 function adminAuthorized(req, state) {
   return req.headers.authorization === `Bearer ${state.adminToken}`;
 }
@@ -269,6 +285,14 @@ function dedupeInstances(instances) {
     if (!existing || (instance.lastHeartbeatAt || 0) >= (existing.lastHeartbeatAt || 0)) byKey.set(key, instance);
   }
   instances.splice(0, instances.length, ...byKey.values());
+  return instances;
+}
+
+function pruneInstances(instances) {
+  const maxAge = Math.max(heartbeatTimeoutSeconds() * 2000, 45000);
+  const now = Date.now();
+  const live = instances.filter((instance) => now - Number(instance.lastHeartbeatAt || 0) <= maxAge);
+  if (live.length !== instances.length) instances.splice(0, instances.length, ...live);
   return instances;
 }
 
@@ -299,6 +323,19 @@ function gatewayClientForRequest(state, req) {
   const clientId = openRemoteClient(req);
   if (!clientId) return undefined;
   return gatewayClients(state).find((client) => client.clientId === clientId || client.key === `id=${clientId}`);
+}
+
+function gatewayClientForId(state, clientId) {
+  if (!clientId) return undefined;
+  return gatewayClients(state).find((client) => client.clientId === clientId || client.key === `id=${clientId}`);
+}
+
+function gatewayActiveSessionId(state, req, clientId) {
+  return (req ? gatewayClientForRequest(state, req) : gatewayClientForId(state, clientId))?.activeSessionId;
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
 }
 
 function gatewayClientRecordsForSummary(state) {
@@ -409,6 +446,163 @@ function instanceForSession(instances, sessionId) {
   return instances.find((instance) => Array.isArray(instance.activeSessionIds) && instance.activeSessionIds.includes(sessionId));
 }
 
+function validForwardPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined;
+}
+
+function forwardHostCandidates(value) {
+  try {
+    const url = new URL(value || "http://localhost");
+    if (!["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"].includes(url.hostname)) return ["localhost", "127.0.0.1", "::1"];
+    const preferred = url.hostname === "[::1]" ? "::1" : url.hostname === "0.0.0.0" ? "localhost" : url.hostname;
+    return [...new Set([preferred, "localhost", "127.0.0.1", "::1"])];
+  } catch {
+    return ["localhost", "127.0.0.1", "::1"];
+  }
+}
+
+function canConnect(host, port) {
+  return new Promise((resolve) => {
+    const socket = connectNet(port, host);
+    const done = (ok) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(300, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
+async function reachableForwardHost(url, port) {
+  for (const host of forwardHostCandidates(url)) {
+    if (await canConnect(host, port)) return host;
+  }
+  return forwardHostCandidates(url)[0] || "localhost";
+}
+
+function gatewayDevServers(instances, activeSessionIds = []) {
+  const active = new Set(activeSessionIds);
+  return instances.flatMap((instance) => (Array.isArray(instance.devServers) ? instance.devServers : [])
+    .filter((server) => validForwardPort(server?.port) && (!server.sessionId || !active.size || active.has(server.sessionId)))
+    .map((server) => ({
+      id: server.id || `${instance.instanceId}:${server.sessionId || "instance"}:${server.port}`,
+      instanceId: instance.instanceId,
+      sessionId: server.sessionId || (Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds[0] : undefined),
+      port: validForwardPort(server.port),
+      url: server.url || `http://127.0.0.1:${server.port}`,
+      label: server.label || `localhost:${server.port}`,
+      source: server.source || "output",
+      lastSeenAt: Number(server.lastSeenAt || instance.lastHeartbeatAt || Date.now()),
+    })));
+}
+
+async function resolveForwardRequest(instances, payload = {}) {
+  const port = validForwardPort(payload.port);
+  if (!port) return { error: "invalid_port" };
+  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : undefined;
+  const instanceId = typeof payload.instanceId === "string" ? payload.instanceId : undefined;
+  const instance = instanceId ? gatewayInstanceById(instances, instanceId) : sessionId ? instanceForSession(instances, sessionId) : instances[0];
+  if (!instance?.instanceId) return { error: "no_registered_instances" };
+  if (sessionId && !Array.isArray(instance.activeSessionIds) || sessionId && !instance.activeSessionIds.includes(sessionId)) return { error: "unknown_session" };
+  const server = gatewayDevServers([instance], sessionId ? [sessionId] : Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds : []).find((candidate) => candidate.port === port && (!sessionId || candidate.sessionId === sessionId));
+  if (!server) return { error: "unknown_forward" };
+  return { instance, sessionId, port, host: await reachableForwardHost(server.url, port) };
+}
+
+function forwardTokenUrl(req, token) {
+  const host = headerValue(req.headers["x-forwarded-host"]) || headerValue(req.headers.host) || "127.0.0.1";
+  const proto = headerValue(req.headers["x-forwarded-proto"]) || "http";
+  const url = new URL(`${proto}://${host}/openremote/forward/${encodeURIComponent(token)}/`);
+  return url.toString();
+}
+
+function forwardPathFromUrl(url) {
+  const match = url.pathname.match(/^\/openremote\/forward\/([^/]+)(\/.*)?$/);
+  if (!match) return undefined;
+  const token = decodeURIComponent(match[1]);
+  const pathname = match[2] || "/";
+  return { token, path: `${pathname}${url.search || ""}` };
+}
+
+function forwardCookiePathFromUrl(url, req) {
+  if (url.pathname.startsWith("/openremote/")) return undefined;
+  const token = cookieValue(req, "openremote_forward");
+  if (!token) return undefined;
+  return { token, path: `${url.pathname || "/"}${url.search || ""}` };
+}
+
+function forwardCookie(token, expiresAt) {
+  const maxAge = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+  return `openremote_forward=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+function rewriteForwardLocation(location, target, token) {
+  if (!location) return location;
+  if (location.startsWith("/")) return `/openremote/forward/${encodeURIComponent(token)}${location}`;
+  try {
+    const parsed = new URL(location);
+    const targetHost = target.host || "localhost";
+    const targetPort = String(target.port);
+    const sameHost = parsed.hostname === targetHost || (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) && ["localhost", "127.0.0.1", "::1"].includes(targetHost));
+    const samePort = (parsed.port || (parsed.protocol === "https:" ? "443" : "80")) === targetPort;
+    if (sameHost && samePort) return `/openremote/forward/${encodeURIComponent(token)}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {}
+  return location;
+}
+
+function forwardHeaders(req, target, extra = {}) {
+  const headers = { ...req.headers, ...extra };
+  headers.host = `${target.host || "localhost"}:${target.port}`;
+  delete headers.authorization;
+  delete headers["proxy-authorization"];
+  delete headers["x-openremote-client"];
+  delete headers["x-openremote-instance"];
+  delete headers["x-forwarded-user"];
+  delete headers["x-forwarded-password"];
+  headers["x-forwarded-for"] = [headers["x-forwarded-for"], req.socket.remoteAddress].filter(Boolean).join(", ");
+  headers["x-forwarded-host"] = headers["x-forwarded-host"] || req.headers.host || "";
+  headers["x-forwarded-proto"] = headers["x-forwarded-proto"] || "http";
+  return headers;
+}
+
+function proxyForwardHttp(req, res, target, pathname, options = {}) {
+  const proxied = request({ hostname: target.host || "localhost", port: target.port, path: pathname, method: req.method, headers: forwardHeaders(req, target) }, (response) => {
+    const headers = { ...response.headers };
+    if (options.token) headers["set-cookie"] = [headers["set-cookie"], forwardCookie(options.token, target.expiresAt || Date.now() + 600000)].flat().filter(Boolean);
+    if (options.token && headers.location) headers.location = rewriteForwardLocation(String(headers.location), target, options.token);
+    res.writeHead(response.statusCode || 502, response.statusMessage, headers);
+    response.pipe(res);
+  });
+  proxied.once("error", () => {
+    if (res.headersSent) res.end();
+    else {
+      res.writeHead(502);
+      res.end("Bad Gateway: forward target unreachable");
+    }
+  });
+  req.pipe(proxied);
+}
+
+function proxyForwardUpgrade(req, socket, head, target, pathname) {
+  const upstream = connectNet(target.port, target.host || "localhost");
+  upstream.once("connect", () => {
+    const headers = forwardHeaders(req, target, { connection: "Upgrade", upgrade: req.headers.upgrade || "websocket" });
+    const lines = [`${req.method || "GET"} ${pathname} HTTP/${req.httpVersion || "1.1"}`];
+    for (const [key, value] of Object.entries(headers)) {
+      if (Array.isArray(value)) for (const item of value) lines.push(`${key}: ${item}`);
+      else if (value !== undefined) lines.push(`${key}: ${value}`);
+    }
+    upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
+    if (head?.length) upstream.write(head);
+    socket.pipe(upstream).pipe(socket);
+  });
+  upstream.once("error", () => socket.destroy());
+  socket.once("error", () => upstream.destroy());
+}
+
 function selectedGatewayInstance(req, url, instances, state) {
   const selectedId = headerValue(req.headers["x-openremote-instance"]) || url.searchParams.get("instance") || undefined;
   if (selectedId) return gatewayInstanceById(instances, selectedId);
@@ -420,7 +614,7 @@ function selectedGatewayInstance(req, url, instances, state) {
 }
 
 function gatewaySummary(state, config, instances, workspaces) {
-  dedupeInstances(instances);
+  pruneInstances(dedupeInstances(instances));
   const connected = gatewayConnected(state);
   updateGatewayKeepAwake(state, config, connected);
   const secondsRemaining = connected || !config.remoteAccessEnabled ? 0 : Math.max(0, Math.ceil(((state.secretRotationDueAt || 0) - Date.now()) / 1000));
@@ -459,16 +653,24 @@ function gatewaySummary(state, config, instances, workspaces) {
   };
 }
 
-function gatewayOpenRemoteStatus(state, config, instances, req) {
+function gatewayPublicInstances(instances) {
+  return instances.map(({ upstreamAuthorization: _auth, ...instance }) => instance);
+}
+
+function gatewayOpenRemoteStatus(state, config, instances, req, clientId) {
   return profileSpan("gateway.openremote.status", () => {
-    dedupeInstances(instances);
-    const activeSessionId = req ? gatewayClientForRequest(state, req)?.activeSessionId : undefined;
-    const instance = instanceForSession(instances, activeSessionId) || instances[0];
-    const activeSessionIds = Array.isArray(instance?.activeSessionIds) ? [...instance.activeSessionIds] : [];
+    pruneInstances(dedupeInstances(instances));
+    const activeSessionId = gatewayActiveSessionId(state, req, clientId);
+    const selectedInstance = instanceForSession(instances, activeSessionId);
+    const statusInstances = selectedInstance ? [selectedInstance] : instances;
+    const activeSessionIds = uniqueStrings(statusInstances.flatMap((instance) => Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds : []));
+    const instanceId = selectedInstance?.instanceId || (!instances.length ? "gateway" : instances.length === 1 ? instances[0].instanceId : "gateway:instances");
     updateGatewayKeepAwake(state, config, gatewayConnected(state));
     return {
-      instanceId: instance?.instanceId || "gateway",
+      instanceId,
+      instances: gatewayPublicInstances(statusInstances),
       activeSessionIds,
+      devServers: gatewayDevServers(statusInstances, activeSessionIds),
       allowNewSessions: process.env.OPENCODE_REMOTE_ALLOW_NEW_SESSIONS === "true",
       connected: gatewayConnected(state),
       heartbeatTimeoutSeconds: heartbeatTimeoutSeconds(),
@@ -478,6 +680,110 @@ function gatewayOpenRemoteStatus(state, config, instances, req) {
       keepAwake: gatewayKeepAwakeStatus(state, config),
     };
   });
+}
+
+async function fetchInstanceJson(instance, pathname, fallback) {
+  if (!instance?.targetBaseUrl) return fallback;
+  try {
+    const headers = {};
+    if (instance.upstreamAuthorization) headers.authorization = instance.upstreamAuthorization;
+    const response = await fetch(new URL(pathname, instance.targetBaseUrl), { headers, signal: AbortSignal.timeout(1500) });
+    if (!response.ok) return fallback;
+    return await response.json();
+  } catch {
+    return fallback;
+  }
+}
+
+function mergeSnapshotRows(rows, key) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const id = row?.[key];
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+async function gatewaySnapshotForInstance(instance) {
+  const active = new Set(Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds : []);
+  const [sessions, sessionStatus, permissions, questions] = await Promise.all([
+    fetchInstanceJson(instance, "/session", []),
+    fetchInstanceJson(instance, "/session/status", {}),
+    fetchInstanceJson(instance, "/permission", []),
+    fetchInstanceJson(instance, "/question", []),
+  ]);
+  const sessionRows = Array.isArray(sessions) ? sessions : Array.isArray(sessions?.data) ? sessions.data : [];
+  const permissionRows = Array.isArray(permissions) ? permissions : Array.isArray(permissions?.data) ? permissions.data : [];
+  const questionRows = Array.isArray(questions) ? questions : Array.isArray(questions?.data) ? questions.data : [];
+  const statusRows = sessionStatus?.data && typeof sessionStatus.data === "object" ? sessionStatus.data : sessionStatus;
+  return {
+    sessions: sessionRows.filter((session) => active.has(session?.id)),
+    sessionStatus: statusRows && typeof statusRows === "object" ? Object.fromEntries(Object.entries(statusRows).filter(([id]) => active.has(id))) : {},
+    permissions: permissionRows.filter((permission) => active.has(permission?.sessionID)),
+    questions: questionRows.filter((question) => active.has(question?.sessionID)),
+  };
+}
+
+async function gatewaySnapshot(state, config, instances, req, clientId) {
+  pruneInstances(dedupeInstances(instances));
+  const status = gatewayOpenRemoteStatus(state, config, instances, req, clientId);
+  const activeSessionId = gatewayActiveSessionId(state, req, clientId);
+  const selectedInstance = instanceForSession(instances, activeSessionId);
+  const targetInstances = selectedInstance ? [selectedInstance] : instances;
+  if (!targetInstances.length) return { ok: true, status, sessions: [], sessionStatus: {}, permissions: [], questions: [] };
+  const snapshots = await Promise.all(targetInstances.map((instance) => gatewaySnapshotForInstance(instance)));
+  return {
+    ok: true,
+    status,
+    sessions: mergeSnapshotRows(snapshots.flatMap((snapshot) => snapshot.sessions), "id"),
+    sessionStatus: Object.assign({}, ...snapshots.map((snapshot) => snapshot.sessionStatus)),
+    permissions: mergeSnapshotRows(snapshots.flatMap((snapshot) => snapshot.permissions), "id"),
+    questions: mergeSnapshotRows(snapshots.flatMap((snapshot) => snapshot.questions), "id"),
+  };
+}
+
+function sendGatewayEvent(clients, type, payload) {
+  const data = `data: ${JSON.stringify({ type, properties: payload })}\n\n`;
+  for (const client of clients) {
+    const res = client?.res || client;
+    try { res.write(data); } catch { clients.delete(client); }
+  }
+}
+
+async function sendGatewaySnapshotEvents(clients, state, config, instances) {
+  await Promise.all([...clients].map(async (client) => {
+    sendGatewayEvent(new Set([client]), "openremote.snapshot", await gatewaySnapshot(state, config, instances, undefined, client.clientId));
+  }));
+}
+
+function sendNoInstanceFallback(req, res, url) {
+  if (req.method !== "GET") return false;
+  if (url.pathname === "/health" || url.pathname === "/global/health") return sendJson(res, 200, { healthy: true, version: "gateway" }), true;
+  if (url.pathname === "/global/event") {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    res.write(`data: ${JSON.stringify({ type: "server.connected", properties: {} })}\n\n`);
+    const timer = setInterval(() => res.write(": waiting\n\n"), 25000);
+    req.on("close", () => clearInterval(timer));
+    return true;
+  }
+  if (url.pathname === "/session") return sendJson(res, 200, []), true;
+  if (url.pathname === "/session/status") return sendJson(res, 200, {}), true;
+  if (/^\/session\/[^/]+\/message(?:\/.*)?$/.test(url.pathname)) return sendJson(res, 200, []), true;
+  if (/^\/session\/[^/]+\/diff(?:\/.*)?$/.test(url.pathname)) return sendJson(res, 200, []), true;
+  if (/^\/session\/[^/]+$/.test(url.pathname)) return sendJson(res, 404, { ok: false, error: "unknown_session" }), true;
+  if (url.pathname === "/permission") return sendJson(res, 200, []), true;
+  if (url.pathname === "/question") return sendJson(res, 200, []), true;
+  if (url.pathname === "/command") return sendJson(res, 200, []), true;
+  if (url.pathname === "/app/agents") return sendJson(res, 200, []), true;
+  if (url.pathname === "/provider") return sendJson(res, 200, { all: [], default: {}, connected: [] }), true;
+  if (url.pathname === "/config") return sendJson(res, 200, {}), true;
+  return false;
 }
 
 function secretRotationSeconds(config) {
@@ -867,7 +1173,7 @@ function listenGatewayServer(server, preferredPort) {
       const onError = (error) => {
         server.off("listening", onListening);
         if ((error?.code === "EADDRINUSE" || error?.code === "EACCES") && index + 1 < ports.length) {
-          setTimeout(() => tryPort(index + 1), port === preferredPort ? 100 : 0).unref?.();
+          setTimeout(() => tryPort(index + 1), port === preferredPort ? 100 : 0);
           return;
         }
         reject(error);
@@ -951,6 +1257,7 @@ async function startGatewayCloudflareTunnel(state, config) {
 }
 
 async function runGatewayDaemon() {
+  try { await appendFile(gatewayLogPath, `[${new Date().toISOString()}] daemon argv=${JSON.stringify(process.argv)} cwd=${process.cwd()}\n`); } catch {}
   const config = await gatewayConfig();
   const previousState = await gatewayState();
   config.remoteAccessMode = config.remoteAccessMode || "local";
@@ -967,6 +1274,8 @@ async function runGatewayDaemon() {
     keepAwakeMode: gatewayKeepAwakeMode(config),
   };
   const instances = [];
+  const forwardTokens = new Map();
+  const gatewayEventClients = new Set();
   const workspaces = Array.isArray(config.workspaces) ? config.workspaces : [];
   const rotationTimer = setInterval(async () => {
     const changed = expireGatewayClient(state, config) || rotateGatewaySecret(state, config);
@@ -989,6 +1298,60 @@ async function runGatewayDaemon() {
       const changed = expireGatewayClient(state, config) || rotateGatewaySecret(state, config);
       if (changed) await writeJson(gatewayConfigPath, config);
       sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
+      return;
+    }
+    if (url.pathname === "/openremote/event" && req.method === "GET") {
+      if (!config.remoteAccessEnabled) {
+        sendJson(res, 503, { ok: false, error: "remote_access_disabled", remoteAccess: { enabled: false } });
+        return;
+      }
+      const auth = gatewayAppAuth(req, state, config);
+      if (!auth.ok) {
+        res.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote Gateway\"" });
+        res.end("Unauthorized");
+        return;
+      }
+      if (!acceptRemoteClient(req, state, url.pathname)) {
+        sendJson(res, 429, { ok: false, error: "too_many_clients" });
+        return;
+      }
+      if (markGatewayConnected(req, state, config, auth)) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+      const eventClient = { res, clientId: openRemoteClient(req) };
+      gatewayEventClients.add(eventClient);
+      sendGatewayEvent(new Set([eventClient]), "openremote.snapshot", await gatewaySnapshot(state, config, instances, req));
+      const timer = setInterval(() => res.write(": keepalive\n\n"), 25000);
+      req.on("close", () => {
+        clearInterval(timer);
+        gatewayEventClients.delete(eventClient);
+      });
+      return;
+    }
+    if (url.pathname === "/openremote/snapshot" && req.method === "GET") {
+      if (!config.remoteAccessEnabled) {
+        sendJson(res, 503, { ok: false, error: "remote_access_disabled", remoteAccess: { enabled: false } });
+        return;
+      }
+      const auth = gatewayAppAuth(req, state, config);
+      if (!auth.ok) {
+        res.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote Gateway\"" });
+        res.end("Unauthorized");
+        return;
+      }
+      if (!acceptRemoteClient(req, state, url.pathname)) {
+        sendJson(res, 429, { ok: false, error: "too_many_clients" });
+        return;
+      }
+      let changed = markGatewayConnected(req, state, config, auth);
+      changed = rememberGatewayActiveSession(req, state, instances, url.searchParams.get("activeSessionId")) || changed;
+      if (changed) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
+      sendJson(res, 200, await gatewaySnapshot(state, config, instances, req));
       return;
     }
     if (url.pathname === "/openremote/gateway/remote/start" && req.method === "POST") {
@@ -1053,6 +1416,68 @@ async function runGatewayDaemon() {
         return;
       }
       sendJson(res, 200, { ok: true, instances: await gatewayInboxSummary(instances) });
+      return;
+    }
+    if (url.pathname === "/openremote/forward-token" && req.method === "POST") {
+      if (!config.remoteAccessEnabled) {
+        sendJson(res, 503, { ok: false, error: "remote_access_disabled", remoteAccess: { enabled: false } });
+        return;
+      }
+      const admin = adminAuthorized(req, state);
+      const auth = gatewayAppAuth(req, state, config);
+      if (!admin && !auth.ok) {
+        res.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote Gateway\"" });
+        res.end("Unauthorized");
+        return;
+      }
+      if (!admin && !acceptRemoteClient(req, state, url.pathname)) {
+        sendJson(res, 429, { ok: false, error: "too_many_clients" });
+        return;
+      }
+      if (!admin && markGatewayConnected(req, state, config, auth)) {
+        await writeGatewayState(state);
+        await writeJson(gatewayConfigPath, config);
+      }
+      const payload = await readJsonRequest(req);
+      const resolved = await resolveForwardRequest(instances, payload);
+      if (resolved.error) {
+        sendJson(res, resolved.error === "invalid_port" ? 400 : 404, { ok: false, error: resolved.error });
+        return;
+      }
+      const tokenValue = token(18);
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+      forwardTokens.set(tokenValue, { instanceId: resolved.instance.instanceId, sessionId: resolved.sessionId, host: resolved.host, port: resolved.port, expiresAt });
+      sendJson(res, 200, { ok: true, token: tokenValue, url: forwardTokenUrl(req, tokenValue), expiresAt, port: resolved.port, instanceId: resolved.instance.instanceId, sessionId: resolved.sessionId });
+      return;
+    }
+    const forward = forwardPathFromUrl(url);
+    if (forward) {
+      const target = forwardTokens.get(forward.token);
+      if (!target || target.expiresAt < Date.now()) {
+        if (target) forwardTokens.delete(forward.token);
+        sendJson(res, 404, { ok: false, error: "forward_expired" });
+        return;
+      }
+      if (forward.path === "/" && req.method === "GET") {
+        res.writeHead(302, {
+          location: "/",
+          "set-cookie": forwardCookie(forward.token, target.expiresAt || Date.now() + 600000),
+        });
+        res.end();
+        return;
+      }
+      proxyForwardHttp(req, res, target, forward.path, { token: forward.token });
+      return;
+    }
+    const cookieForward = forwardCookiePathFromUrl(url, req);
+    if (cookieForward) {
+      const target = forwardTokens.get(cookieForward.token);
+      if (!target || target.expiresAt < Date.now()) {
+        if (target) forwardTokens.delete(cookieForward.token);
+        sendJson(res, 404, { ok: false, error: "forward_expired" });
+        return;
+      }
+      proxyForwardHttp(req, res, target, cookieForward.path, { token: cookieForward.token });
       return;
     }
     if (url.pathname === "/openremote/gateway/remote/stop" && req.method === "POST") {
@@ -1120,7 +1545,7 @@ async function runGatewayDaemon() {
       ensureGatewaySecretRotation(state, config);
       rotateGatewaySecret(state, config);
         const existingIndex = instances.findIndex((instance) => instance.instanceId === payload.instanceId);
-        const instance = { ...payload, lastHeartbeatAt: now };
+        const instance = { ...payload, devServers: gatewayDevServers([{ ...payload, lastHeartbeatAt: now }], payload.activeSessionIds), lastHeartbeatAt: now };
         if (existingIndex === -1) instances.push(instance);
         else instances[existingIndex] = { ...instances[existingIndex], ...instance };
         dedupeInstances(instances);
@@ -1144,6 +1569,7 @@ async function runGatewayDaemon() {
           config.workspaces = workspaces;
         }
         if (JSON.stringify(config) !== configBefore) await writeJson(gatewayConfigPath, config);
+        await sendGatewaySnapshotEvents(gatewayEventClients, state, config, instances);
         sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
       });
       return;
@@ -1210,8 +1636,10 @@ async function runGatewayDaemon() {
       await writeGatewayState(state);
       await writeJson(gatewayConfigPath, config);
     }
+    pruneInstances(dedupeInstances(instances));
     const instance = selectedGatewayInstance(req, url, instances, state);
     if (!instance) {
+      if (sendNoInstanceFallback(req, res, url)) return;
       sendJson(res, 503, { ok: false, error: "no_registered_instances" });
       return;
     }
@@ -1220,7 +1648,34 @@ async function runGatewayDaemon() {
       if (statusCode >= 200 && statusCode < 300) forgetGatewayQuestion(instance, questionId);
     });
   });
-  state.appPort = await listenGatewayServer(server, Number(config.appPort || 0));
+  server.on("upgrade", (req, socket, head) => {
+    try {
+      const url = new URL(req.url || "/", "http://127.0.0.1");
+      const forward = forwardPathFromUrl(url) || forwardCookiePathFromUrl(url, req);
+      if (!forward) {
+        socket.destroy();
+        return;
+      }
+      const target = forwardTokens.get(forward.token);
+      if (!target || target.expiresAt < Date.now()) {
+        if (target) forwardTokens.delete(forward.token);
+        socket.destroy();
+        return;
+      }
+      proxyForwardUpgrade(req, socket, head, target, forward.path);
+    } catch {
+      socket.destroy();
+    }
+  });
+  const configuredAppPort = Number(previousState?.appPort || config.appPort || 0);
+  const previousAppPort = Number.isInteger(configuredAppPort) && configuredAppPort > 0 && configuredAppPort <= 65535 ? configuredAppPort : 0;
+  state.appPort = await listenGatewayServer(server, previousAppPort || 0);
+  try { await appendFile(gatewayLogPath, `[${new Date().toISOString()}] daemon listening ${state.appPort}\n`); } catch {}
+  if (previousAppPort && state.appPort !== previousAppPort) {
+    state.gatewayClients = [];
+    state.connectedClientId = undefined;
+    state.connectedClientHeartbeatAt = 0;
+  }
   config.appPort = state.appPort;
   ensureGatewaySecretRotation(state, config);
   publishLanService(state.appPort);
@@ -1250,11 +1705,11 @@ async function runGatewayDaemon() {
   process.once("exit", () => void cleanup());
 }
 
-async function fetchGatewayStatus(state) {
+async function fetchGatewayStatus(state, options = {}) {
   return profileSpan("gateway.fetch.status", async () => {
     const response = await fetch(`http://127.0.0.1:${state.appPort}/openremote/gateway/status`, {
       headers: { authorization: `Bearer ${state.adminToken}`, connection: "close" },
-      signal: AbortSignal.timeout(1200),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 1200),
     });
     if (!response.ok) throw new Error(`status failed: ${response.status}`);
     return response.json();
@@ -1306,6 +1761,28 @@ async function gatewayAdminPost(pathname) {
   });
 }
 
+async function gatewayForwardToken(server) {
+  return profileSpan("gateway.fetch.forwardToken", async () => {
+    const state = await gatewayState();
+    if (!state?.appPort || !state?.adminToken) throw new Error("OpenRemote Gateway is not running");
+    const response = await fetch(`http://127.0.0.1:${state.appPort}/openremote/forward-token`, {
+      method: "POST",
+      body: JSON.stringify({ instanceId: server.instanceId, sessionId: server.sessionId, port: server.port }),
+      headers: { authorization: `Bearer ${state.adminToken}`, connection: "close", "content-type": "application/json" },
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) throw new Error(`forward token failed: ${response.status}`);
+    return response.json();
+  });
+}
+
+function openDefaultBrowser(url) {
+  const current = platform();
+  if (current === "darwin") return execFile("open", [url]);
+  if (current === "win32") return execFile("cmd", ["/c", "start", "", url]);
+  return execFile("xdg-open", [url]);
+}
+
 async function startGateway(options = {}) {
   const current = await gatewayState();
   if (current?.appPort && current?.adminToken) {
@@ -1318,23 +1795,40 @@ async function startGateway(options = {}) {
     }
   }
   await gatewayConfig();
-  const child = process.argv[0] && process.argv[1]
-    ? execFile(process.argv[0], [process.argv[1], "gateway", "daemon"], { detached: true, stdio: "ignore" })
+  await mkdir(gatewayStateDir, { recursive: true });
+  await writeFile(gatewayLogPath, `[${new Date().toISOString()}] starting gateway daemon\n`);
+  const logFd = openSync(gatewayLogPath, "a");
+  const daemonRuntime = process.versions?.bun ? "node" : process.execPath;
+  await appendFile(gatewayLogPath, `[${new Date().toISOString()}] runtime ${daemonRuntime}\n`);
+  const child = process.argv[1]
+    ? spawn(daemonRuntime, [process.argv[1], "gateway", "daemon"], { detached: true, stdio: ["ignore", logFd, logFd] })
     : undefined;
+  try { closeSync(logFd); } catch {}
+  if (child?.pid) await appendFile(gatewayLogPath, `[${new Date().toISOString()}] spawned ${child.pid}\n`);
   child?.unref?.();
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const next = await gatewayState();
-    if (!next?.appPort) continue;
+    if (!next?.appPort || !next?.adminToken) continue;
     try {
-      const status = await fetchGatewayStatus(next);
+      const status = await fetchGatewayStatus(next, { timeoutMs: 250 });
       if (!options.quiet) console.log(`OpenRemote Gateway started on ${status.appPort}`);
       return;
     } catch {
       // keep waiting
     }
   }
-  throw new Error("OpenRemote Gateway did not start");
+  let log = "";
+  try {
+    log = await readFile(gatewayLogPath, "utf8");
+  } catch {}
+  let stateText = "";
+  try {
+    stateText = await readFile(gatewayStatePath, "utf8");
+  } catch {}
+  const lines = log.trim().split("\n").slice(-12).join("\n");
+  throw new Error(`OpenRemote Gateway did not start${lines ? `\n\nGateway log (${gatewayLogPath}):\n${lines}` : ""}${stateText ? `\n\nGateway state (${gatewayStatePath}):\n${stateText}` : ""}`);
 }
 
 async function stopGateway(options = {}) {
@@ -1461,6 +1955,8 @@ async function attachGatewayOpenTui() {
     fetchGatewayInbox,
     gatewayOpenCodeFetch,
     gatewayAdminPost,
+    gatewayForwardToken,
+    openDefaultBrowser,
     startGateway,
     stopGateway,
     qrLines,

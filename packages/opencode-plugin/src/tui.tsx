@@ -3,7 +3,7 @@
 // @ts-nocheck
 import type { TuiPlugin, TuiPluginApi, TuiSlotPlugin, TuiThemeCurrent } from "@opencode-ai/plugin/tui";
 import { createElement } from "@opentui/solid";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -206,11 +206,18 @@ async function fetchWithTimeout(url: string, timeout = 1500) {
   });
 }
 
+function unwrapApiData(value: unknown) {
+  if (!value || typeof value !== "object" || !("data" in value || "error" in value)) return value;
+  const wrapped = value as { data?: unknown; error?: unknown };
+  if (wrapped.error) return undefined;
+  return wrapped.data;
+}
+
 async function validOpenCodeTarget(port: number) {
   try {
     const response = await fetchWithTimeout(`http://127.0.0.1:${port}/session`);
     if (!response.ok) return false;
-    return Array.isArray(await response.json());
+    return Array.isArray(unwrapApiData(await response.json()));
   } catch {
     return false;
   }
@@ -244,7 +251,7 @@ function sessionIdFromContext(ctx: unknown) {
 }
 
 function sessionIdFromRoute(api: TuiPluginApi) {
-  return api.route.current.name === "session" ? api.route.current.params.sessionID : undefined;
+  return sessionIdFromContext(api.route.current);
 }
 
 function addSessionId(ids: string[], value: unknown) {
@@ -289,13 +296,20 @@ let cachedQrLines: string[] = [];
 let latestApi: TuiPluginApi | undefined;
 let gatewayHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let gatewayUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+let gatewayBootstrapTimers: ReturnType<typeof setTimeout>[] = [];
 let gatewayUpdateInFlight = false;
 let gatewayUpdateDirty = false;
+let lastDevServerScanAt = 0;
 const remoteSessionIds = new Set<string>();
+const statusSessionIds = new Set<string>();
 const pendingQuestions = new Map<string, unknown>();
+const devServers = new Map<string, { id: string; sessionId: string; port: number; url: string; label: string; source: string; command?: string; pid?: number; lastSeenAt: number }>();
+const devServerLaunches = new Map<string, { sessionId: string; command: string; labels: string[]; lastSeenAt: number }>();
 const registeredEventApis = new WeakSet<object>();
 const registeredCommandApis = new WeakSet<object>();
 const registeredSlotApis = new WeakSet<object>();
+type ListenerInfo = { pid: number; port: number };
+type ProcessInfo = { pid: number; ppid: number; startedAt?: number; command: string; args: string; cwd?: string };
 const [remoteConnected, setRemoteConnected] = createSignal(false);
 const [remoteStatus, setRemoteStatus] = createSignal<"waiting" | "connected">("waiting");
 const [remoteDevice, setRemoteDevice] = createSignal("mobile");
@@ -456,6 +470,324 @@ function gatewayQuestions() {
   return [...pendingQuestions.values()];
 }
 
+function normalizeLocalServerUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return undefined;
+    if (!["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"].includes(url.hostname)) return undefined;
+    const port = validPort(Number(url.port || (url.protocol === "https:" ? 443 : 80)));
+    if (!port) return undefined;
+    if (url.hostname === "0.0.0.0") url.hostname = "localhost";
+    return { port, url: url.toString(), label: `localhost:${port}` };
+  } catch {
+    return undefined;
+  }
+}
+
+function textFromUnknown(value: unknown, seen = new Set<unknown>()): string[] {
+  if (typeof value === "string") return [value];
+  if (!value || typeof value !== "object" || seen.has(value)) return [];
+  seen.add(value);
+  return Object.values(value as Record<string, unknown>).flatMap((child) => textFromUnknown(child, seen));
+}
+
+function devServerLaunchCommands(event: unknown) {
+  const values = new Set<string>();
+  const command = openRemoteCommand(event);
+  if (command) values.add(command);
+  for (const text of textFromUnknown(event)) values.add(text);
+  return [...values];
+}
+
+function rememberDevServers(event: unknown) {
+  const sessionId = eventSessionId(event) || devServerSessionId();
+  if (!openRemoteSessionActive(sessionId)) return;
+  for (const command of devServerLaunchCommands(event)) {
+    const labels = devServerLaunchLabels(command);
+    if (!labels.length) continue;
+    devServerLaunches.set(`${sessionId}:${labels.join("|")}:${Date.now()}`, { sessionId, command, labels, lastSeenAt: Date.now() });
+    scheduleGatewayUpdate(0);
+  }
+}
+
+function execFileText(command: string, args: string[], timeout = 1000) {
+  return new Promise<string>((resolve, reject) => {
+    execFile(command, args, { timeout }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.toString());
+    });
+  });
+}
+
+function gatewayRuntimePorts() {
+  const state = readJsonFile(gatewayStatePath);
+  const ports = new Set<number>();
+  if (state && typeof state === "object") {
+    for (const key of ["appPort", "adminPort"]) {
+      const port = validPort(Number((state as Record<string, unknown>)[key]));
+      if (port) ports.add(port);
+    }
+  }
+  const targetPort = validPort(Number(new URL(gatewayTargetBaseUrl()).port || 4096));
+  if (targetPort) ports.add(targetPort);
+  return ports;
+}
+
+function listeningLoopbackProcesses(output: string) {
+  const listeners: ListenerInfo[] = [];
+  for (const line of output.split("\n")) {
+    if (!line.includes("TCP") || !line.includes("(LISTEN)")) continue;
+    const columns = line.trim().split(/\s+/);
+    const pid = Number(columns[1]);
+    const match = line.match(/TCP\s+(?:localhost|127\.0\.0\.1|\[::1\]|\*)[:.](\d+)\s+\(LISTEN\)/i);
+    const port = match ? validPort(Number(match[1])) : undefined;
+    if (Number.isInteger(pid) && pid > 0 && port) listeners.push({ pid, port });
+  }
+  return listeners;
+}
+
+function listeningWindowsProcesses(output: string) {
+  const listeners: ListenerInfo[] = [];
+  for (const line of output.split("\n")) {
+    const columns = line.trim().split(/\s+/);
+    if (columns[0] !== "TCP" || columns[3] !== "LISTENING") continue;
+    const port = validPort(Number(columns[1]?.match(/:(\d+)$/)?.[1]));
+    const pid = Number(columns[4]);
+    if (Number.isInteger(pid) && pid > 0 && port) listeners.push({ pid, port });
+  }
+  return listeners;
+}
+
+function processTable(output: string) {
+  const table = new Map<number, ProcessInfo>();
+  for (const line of output.split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(?:(\d+)\s+)?(\S+)(?:\s+(.*))?$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ppid = Number(match[2]);
+    const elapsedSeconds = match[3] ? Number(match[3]) : NaN;
+    if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
+    table.set(pid, { pid, ppid, startedAt: Number.isFinite(elapsedSeconds) ? Date.now() - elapsedSeconds * 1000 : undefined, command: match[4], args: match[5] || match[4] });
+  }
+  return table;
+}
+
+async function collectUnixProcessTable() {
+  try {
+    return processTable(await execFileText("ps", ["-axo", "pid=,ppid=,etimes=,comm=,args="], 1200));
+  } catch {
+    return processTable(await execFileText("ps", ["-axo", "pid=,ppid=,comm=,args="], 1200));
+  }
+}
+
+function processCwdTable(output: string) {
+  const table = new Map<number, string>();
+  let pid: number | undefined;
+  for (const line of output.split("\n")) {
+    if (line.startsWith("p")) {
+      const value = Number(line.slice(1));
+      pid = Number.isInteger(value) && value > 0 ? value : undefined;
+      continue;
+    }
+    if (pid && line.startsWith("n")) table.set(pid, line.slice(1));
+  }
+  return table;
+}
+
+function applyProcessCwds(processes: Map<number, ProcessInfo>, cwds: Map<number, string>) {
+  for (const [pid, cwd] of cwds) {
+    const process = processes.get(pid);
+    if (process) process.cwd = cwd;
+  }
+  return processes;
+}
+
+function windowsProcessTable(output: string) {
+  const table = new Map<number, ProcessInfo>();
+  try {
+    const parsed = JSON.parse(output || "[]") as unknown;
+    const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      const value = row as Record<string, unknown>;
+      const pid = Number(value.ProcessId);
+      const ppid = Number(value.ParentProcessId);
+      if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
+      const command = typeof value.Name === "string" ? value.Name : "process";
+      const args = typeof value.CommandLine === "string" && value.CommandLine ? value.CommandLine : command;
+      const createdAt = typeof value.CreationDate === "string" ? Date.parse(value.CreationDate) : NaN;
+      table.set(pid, { pid, ppid, startedAt: Number.isFinite(createdAt) ? createdAt : undefined, command, args });
+    }
+  } catch {
+    return table;
+  }
+  return table;
+}
+
+async function collectWindowsProcesses() {
+  const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{Name='CreationDate';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress";
+  try {
+    return windowsProcessTable(await execFileText("powershell.exe", ["-NoProfile", "-Command", script], 2000));
+  } catch {
+    return windowsProcessTable(await execFileText("pwsh", ["-NoProfile", "-Command", script], 2000));
+  }
+}
+
+async function collectDevServerProcesses() {
+  if (process.platform === "win32") {
+    const [listeners, processes] = await Promise.all([
+      execFileText("netstat", ["-ano", "-p", "tcp"], 2000).then(listeningWindowsProcesses),
+      collectWindowsProcesses(),
+    ]);
+    return { listeners, processes };
+  }
+  const [listeners, processes, cwds] = await Promise.all([
+    execFileText("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN"], 1200).then(listeningLoopbackProcesses),
+    collectUnixProcessTable(),
+    execFileText("lsof", ["-nP", "-d", "cwd", "-F", "pn"], 1200).then(processCwdTable).catch(() => new Map<number, string>()),
+  ]);
+  return { listeners, processes: applyProcessCwds(processes, cwds) };
+}
+
+function ownedByOpenCodeProcess(pid: number, processes: Map<number, { ppid: number }>) {
+  const seen = new Set<number>();
+  let current = pid;
+  while (current > 0 && !seen.has(current)) {
+    if (current === process.pid) return true;
+    seen.add(current);
+    const parent = processes.get(current)?.ppid;
+    if (!parent || parent === current) return false;
+    current = parent;
+  }
+  return false;
+}
+
+function devServerSessionId() {
+  if (openRemoteSessionActive(visibleSessionId)) return visibleSessionId;
+  const ids = activeSessionIds().filter((id) => openRemoteSessionActive(id));
+  return ids.length === 1 ? ids[0] : undefined;
+}
+
+function devServerLaunchLabels(command: string) {
+  const normalized = command.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const labels = new Set<string>();
+  const label = commandLabelForArgs(normalized);
+  if (label) labels.add(label);
+  if (/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?[\w:-]*dev[\w:-]*\b/i.test(normalized)) {
+    for (const fallback of ["astro dev", "vite", "next dev", "expo start"]) labels.add(fallback);
+  }
+  return [...labels];
+}
+
+function commandLabelForArgs(args: string) {
+  const normalized = args.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  if (/\bastro\b.*\bdev\b/i.test(normalized)) return "astro dev";
+  if (/\bnext\b.*\bdev\b/i.test(normalized)) return "next dev";
+  if (/\bexpo\b.*\bstart\b/i.test(normalized)) return "expo start";
+  if (/\b(vite|vite\.js)\b/i.test(normalized)) return "vite";
+  const npmScript = normalized.match(/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([\w:-]*dev[\w:-]*)\b/i);
+  if (npmScript) return `${normalized.match(/\b(npm|pnpm|yarn|bun)\b/i)?.[1] || "npm"} ${npmScript[1]}`;
+  const command = normalized.split(" ").find((part) => !part.includes("=") && !part.startsWith("-") && !part.includes("/node_modules/"));
+  return command?.split(/[\\/]/).pop();
+}
+
+function devServerCommand(pid: number, processes: Map<number, ProcessInfo>) {
+  const labels: string[] = [];
+  const seen = new Set<number>();
+  let current = pid;
+  while (current > 0 && !seen.has(current)) {
+    const entry = processes.get(current);
+    if (!entry) break;
+    const label = commandLabelForArgs(entry.args || entry.command);
+    if (label && !/^(node|bun|sh|bash|zsh|env)$/i.test(label)) labels.push(label);
+    if (current === process.pid) break;
+    seen.add(current);
+    current = entry.ppid;
+  }
+  return labels[0] || commandLabelForArgs(processes.get(pid)?.args || "") || "spawned";
+}
+
+function internalOpenRemoteOrOpenCodeListener(pid: number, processes: Map<number, ProcessInfo>) {
+  const args = processes.get(pid)?.args || "";
+  return /\b(?:opencode-openremote|oo|cli\.mjs)\b.*\bgateway\s+daemon\b/i.test(args) || /\bopencode\b/i.test(args);
+}
+
+function recentDevServerLaunch(sessionId: string, command: string, startedAt: number | undefined, now: number) {
+  for (const launch of devServerLaunches.values()) {
+    if (launch.sessionId !== sessionId || !launch.labels.includes(command)) continue;
+    if (now - launch.lastSeenAt >= 30 * 60_000) continue;
+    if (startedAt && startedAt > launch.lastSeenAt + 30_000) continue;
+    return true;
+  }
+  return false;
+}
+
+function workspaceDevServerProcess(pid: number, processes: Map<number, ProcessInfo>) {
+  const cwd = processes.get(pid)?.cwd?.replace(/[\/]+$/, "");
+  if (!cwd) return false;
+  const root = process.cwd().replace(/[\/]+$/, "");
+  return cwd === root || cwd.startsWith(`${root}/`) || cwd.startsWith(`${root}\\`);
+}
+
+function pruneDevServerLaunches(now: number) {
+  for (const [id, launch] of devServerLaunches) {
+    if (!openRemoteSessionActive(launch.sessionId) || now - launch.lastSeenAt > 30 * 60_000) devServerLaunches.delete(id);
+  }
+}
+
+async function probeHttpDevServer(port: number) {
+  try {
+    const response = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(600) });
+    if (!response.ok && response.status >= 500) return undefined;
+    return normalizeLocalServerUrl(`http://localhost:${port}/`);
+  } catch {
+    return undefined;
+  }
+}
+
+async function refreshLocalDevServerScan() {
+  const now = Date.now();
+  if (now - lastDevServerScanAt < 5000) return;
+  lastDevServerScanAt = now;
+  pruneDevServerLaunches(now);
+  const sessionId = devServerSessionId();
+  if (!openRemoteSessionActive(sessionId)) return;
+  let scan: { listeners: ListenerInfo[]; processes: Map<number, ProcessInfo> };
+  try {
+    scan = await collectDevServerProcesses();
+  } catch {
+    return;
+  }
+  const excluded = gatewayRuntimePorts();
+  const seen = new Set<string>();
+  for (const { pid, port } of scan.listeners) {
+    if (excluded.has(port)) continue;
+    if (internalOpenRemoteOrOpenCodeListener(pid, scan.processes)) continue;
+    const command = devServerCommand(pid, scan.processes);
+    if (!ownedByOpenCodeProcess(pid, scan.processes) && !workspaceDevServerProcess(pid, scan.processes)) continue;
+    const normalized = await probeHttpDevServer(port);
+    if (!normalized) continue;
+    const id = `${sessionId}:${normalized.port}`;
+    seen.add(id);
+    devServers.set(id, { id, sessionId, port: normalized.port, url: normalized.url, label: normalized.label, source: command || "spawned", command, pid, lastSeenAt: now });
+  }
+  for (const [id, server] of devServers) {
+    if (server.sessionId === sessionId && !seen.has(id)) devServers.delete(id);
+  }
+}
+
+function gatewayDevServers() {
+  const active = new Set(activeSessionIds());
+  const maxAge = 4 * 60 * 60 * 1000;
+  const now = Date.now();
+  for (const [id, server] of devServers) {
+    if (server.source === "output" || !active.has(server.sessionId) || now - server.lastSeenAt > maxAge) devServers.delete(id);
+  }
+  return [...devServers.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.port - right.port);
+}
+
 function rememberQuestion(event: unknown) {
   const id = eventQuestionId(event);
   const question = eventQuestion(event);
@@ -477,6 +809,24 @@ function scheduleGatewayUpdate(delay = 100) {
   gatewayUpdateTimer.unref?.();
 }
 
+function setVisibleSessionId(sessionId: string | undefined, delay = 100) {
+  if (!sessionId) return;
+  if (sessionId === visibleSessionId) return;
+  visibleSessionId = sessionId;
+  scheduleGatewayUpdate(delay);
+}
+
+function scheduleGatewayBootstrapUpdates() {
+  for (const timer of gatewayBootstrapTimers) clearTimeout(timer);
+  gatewayBootstrapTimers = [250, 1000, 2500, 5000].map((delay) => {
+    const timer = setTimeout(() => {
+      if (gatewayState() === "registered" && activeSessionIds().length === 0) scheduleGatewayUpdate(0);
+    }, delay);
+    timer.unref?.();
+    return timer;
+  });
+}
+
 async function registerGatewayInstance() {
   return profileSpan("plugin.gateway.register", async () => {
     if (gatewayUpdateInFlight) {
@@ -484,6 +834,8 @@ async function registerGatewayInstance() {
       return;
     }
     gatewayUpdateInFlight = true;
+    await refreshStatusSessionIds();
+    await refreshLocalDevServerScan();
     const body = {
       instanceId: pluginInstanceId,
       cwd: process.cwd(),
@@ -491,6 +843,7 @@ async function registerGatewayInstance() {
       targetBaseUrl: gatewayTargetBaseUrl(),
       activeSessionIds: activeSessionIds(),
       questions: gatewayQuestions(),
+      devServers: gatewayDevServers(),
       pid: process.pid,
       launchCommand: launchCommand(),
       upstreamAuthorization: authHeaders().authorization,
@@ -626,6 +979,7 @@ async function initGateway() {
   }
   try {
     await registerGatewayInstance();
+    scheduleGatewayBootstrapUpdates();
     if (!gatewayHeartbeatTimer) {
       gatewayHeartbeatTimer = setInterval(() => scheduleGatewayUpdate(0), 30000);
       gatewayHeartbeatTimer.unref?.();
@@ -806,7 +1160,21 @@ function activeSessionIds() {
   const ids: string[] = [];
   addSessionId(ids, visibleSessionId);
   for (const id of remoteSessionIds) addSessionId(ids, id);
+  for (const id of statusSessionIds) addSessionId(ids, id);
   return ids;
+}
+
+async function refreshStatusSessionIds() {
+  try {
+    const response = await fetchWithTimeout(`${gatewayTargetBaseUrl()}/session/status`, 800);
+    if (!response.ok) return;
+    const statuses = unwrapApiData(await response.json());
+    statusSessionIds.clear();
+    if (!statuses || typeof statuses !== "object") return;
+    for (const id of Object.keys(statuses as Record<string, unknown>)) if (id.startsWith("ses_")) statusSessionIds.add(id);
+  } catch {
+    // Best-effort fallback when route context is unavailable.
+  }
 }
 
 function pluginStatus() {
@@ -1608,8 +1976,9 @@ function markOpenRemoteSession(sessionId: string | undefined) {
 }
 
 function clearOpenRemoteSessions() {
-  if (!remoteSessionIds.size) return;
+  if (!remoteSessionIds.size && !statusSessionIds.size) return;
   remoteSessionIds.clear();
+  statusSessionIds.clear();
   prunePendingQuestions();
 }
 
@@ -1645,6 +2014,7 @@ function installEventHandlers(api: TuiPluginApi) {
   api.event.on("tui.toast.show", (event) => {
     const currentApi = latestApi;
     if (!currentApi) return;
+    rememberDevServers(event);
     if (isOpenRemoteConnectedToast(event)) {
       markOpenRemoteSession(openRemoteSessionId(event));
       markRemoteConnected(currentApi, openRemoteConnectedDevice(event));
@@ -1679,6 +2049,7 @@ function installEventHandlers(api: TuiPluginApi) {
   api.event.on("tui.command.execute", (event) => {
     const currentApi = latestApi;
     if (!currentApi) return;
+    rememberDevServers(event);
     const command = openRemoteCommand(event);
     if (command === "openremote.connected") markRemoteConnected(currentApi);
     if (command === "openremote.waiting") {
@@ -1718,10 +2089,12 @@ function installEventHandlers(api: TuiPluginApi) {
   api.event.on("session.deleted", (event) => {
     const id = eventSessionId(event);
     if (id) remoteSessionIds.delete(id);
+    if (id && visibleSessionId === id) visibleSessionId = undefined;
     prunePendingQuestions();
     scheduleGatewayUpdate();
   });
   api.event.on("question.asked", (event) => {
+    rememberDevServers(event);
     rememberQuestion(event);
     scheduleGatewayUpdate();
   });
@@ -1733,6 +2106,18 @@ function installEventHandlers(api: TuiPluginApi) {
     forgetQuestion(event);
     scheduleGatewayUpdate();
   });
+  for (const eventName of ["message.updated", "message.part.updated", "message.part.done"]) {
+    api.event.on(eventName, (event) => rememberDevServers(event));
+  }
+  for (const eventName of ["session.updated", "session.idle"]) {
+    api.event.on(eventName, (event) => {
+      rememberDevServers(event);
+      const id = eventSessionId(event);
+      if (!id) return;
+      markOpenRemoteSession(id);
+      scheduleGatewayUpdate();
+    });
+  }
 }
 
 function installCommands(api: TuiPluginApi) {
@@ -1815,10 +2200,7 @@ function installCommands(api: TuiPluginApi) {
 
 const Sidebar = (props: { api: TuiPluginApi; sessionId?: string; theme: TuiThemeCurrent }) => {
   const nextSessionId = props.sessionId ?? sessionIdFromRoute(props.api);
-  if (nextSessionId !== visibleSessionId) {
-    visibleSessionId = nextSessionId;
-    scheduleGatewayUpdate();
-  }
+  setVisibleSessionId(nextSessionId);
   const gatewayRegistered = () => gatewayState() === "registered";
   const effectiveConnected = () => gatewayConnected() || remoteConnected();
   return (
@@ -1970,6 +2352,7 @@ export const tui: TuiPlugin = async (api) => {
   installEventHandlers(api);
   installCommands(api);
   installSlots(api);
+  setVisibleSessionId(sessionIdFromRoute(api), 0);
   void initGateway().then((handledByGateway) => {
     if (handledByGateway) return;
     void startTunnelProxy().then(() => api.renderer.requestRender()).catch((error) => {

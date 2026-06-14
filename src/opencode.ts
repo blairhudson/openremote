@@ -34,10 +34,15 @@ type QuestionAskedEvent = { id: string; type: "question.asked"; properties: Ques
 type QuestionRepliedEvent = { id: string; type: "question.replied"; properties: { sessionID: string; requestID: string; answers: string[][] } };
 type QuestionRejectedEvent = { id: string; type: "question.rejected"; properties: { sessionID: string; requestID: string } };
 type TuiToastEvent = { id?: string; type: "tui.toast.show"; properties?: { message?: string; title?: string }; message?: string };
-export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent | TuiToastEvent) & { serverDirectory?: string };
+type OpenRemoteSnapshotEvent = { id?: string; type: "openremote.snapshot"; properties: OpenRemoteSnapshot };
+export type StreamEvent = (OpencodeEvent | PermissionAskedEvent | PermissionRepliedEvent | QuestionAskedEvent | QuestionRepliedEvent | QuestionRejectedEvent | TuiToastEvent | OpenRemoteSnapshotEvent) & { serverDirectory?: string };
 
 export type Health = { healthy: boolean; version: string };
-export type OpenRemoteStatus = { instanceId: string; activeSessionIds: string[]; allowNewSessions?: boolean; connected: boolean; heartbeatTimeoutSeconds?: number; resumeSeconds?: number; resumeExpiresAt?: number; lastHeartbeatAt: number };
+export type DevServer = { id: string; instanceId?: string; sessionId?: string; port: number; url?: string; label?: string; source?: string; lastSeenAt?: number };
+export type OpenRemoteInstance = { instanceId: string; cwd?: string; workspaceLabel?: string; activeSessionIds?: string[]; devServers?: DevServer[]; lastHeartbeatAt?: number };
+export type ForwardToken = { ok: true; token: string; url: string; expiresAt: number; port: number; instanceId?: string; sessionId?: string };
+export type OpenRemoteStatus = { instanceId: string; instances?: OpenRemoteInstance[]; activeSessionIds: string[]; devServers?: DevServer[]; allowNewSessions?: boolean; connected: boolean; heartbeatTimeoutSeconds?: number; resumeSeconds?: number; resumeExpiresAt?: number; lastHeartbeatAt: number };
+export type OpenRemoteSnapshot = { ok: true; status: OpenRemoteStatus; sessions: Session[]; sessionStatus: Record<string, SessionStatus>; permissions: PermissionRequest[]; questions: QuestionRequest[] };
 export type MessageBundle = {
   info?: Message;
   parts?: Part[];
@@ -148,7 +153,7 @@ export class OpencodeClient {
   }
 
   async modelLimits() {
-    const providers = await this.providers();
+    const providers = await this.providers().catch(() => ({ all: [] }));
     const limits: ModelLimits = {};
 
     for (const provider of providers.all) {
@@ -208,6 +213,15 @@ export class OpencodeClient {
     }
   }
 
+  async openRemoteSnapshot(activeSessionId?: string) {
+    try {
+      const query = activeSessionId ? `?activeSessionId=${encodeURIComponent(activeSessionId)}` : "";
+      return await this.request<OpenRemoteSnapshot>(`/openremote/snapshot${query}`);
+    } catch {
+      return null;
+    }
+  }
+
   async heartbeat(activeSessionId?: string) {
     try {
       return await this.request<OpenRemoteStatus>("/openremote/heartbeat", { method: "POST", body: JSON.stringify({ activeSessionId }) });
@@ -222,6 +236,10 @@ export class OpencodeClient {
     } catch {
       return null;
     }
+  }
+
+  createForwardToken(request: { instanceId?: string; sessionId?: string; port: number }) {
+    return this.request<ForwardToken>("/openremote/forward-token", { method: "POST", body: JSON.stringify(request) });
   }
 
   replyPermission(requestId: string, reply: "once" | "always" | "reject", message?: string) {
@@ -296,6 +314,27 @@ export class OpencodeClient {
 
   events(onEvent: (event: StreamEvent) => void, onUnknown: () => void) {
     const source = new EventSource(`${this.settings.baseUrl}/global/event`, {
+      headers: { ...authHeaders(this.settings), ...openRemoteHeaders(this.settings) },
+    } as never);
+
+    const handleEvent = (event: { data?: string; type?: string }) => {
+      const parsed = parseEvent(event);
+      if (parsed) onEvent(parsed);
+      else onUnknown();
+    };
+
+    source.addEventListener("message", handleEvent as never);
+    return () => {
+      try {
+        source.removeEventListener("message", handleEvent as never);
+      } finally {
+        source.close();
+      }
+    };
+  }
+
+  openRemoteEvents(onEvent: (event: StreamEvent) => void, onUnknown: () => void) {
+    const source = new EventSource(`${this.settings.baseUrl}/openremote/event`, {
       headers: { ...authHeaders(this.settings), ...openRemoteHeaders(this.settings) },
     } as never);
 

@@ -4,7 +4,7 @@ import { createStatusScreen, renderStatusScreen } from "./status.mjs";
 import { displayEndpoint, panelProps, profileSpan, theme } from "./common.mjs";
 
 export async function attachGatewayOpenTui(deps) {
-  const { createCliRenderer, BoxRenderable, TextRenderable } = await import("@opentui/core");
+  const { createCliRenderer, BoxRenderable, TextRenderable, RGBA } = await import("@opentui/core");
   let status;
   let inbox = [];
   let activeTab = "status";
@@ -52,8 +52,8 @@ export async function attachGatewayOpenTui(deps) {
   const controlsPanel = box("gateway-controls-panel", { backgroundColor: theme.background, width: "auto", height: 1, flexShrink: 0, flexDirection: "column", paddingLeft: 1, paddingRight: 1 });
   const controlsText = text("gateway-controls-text", "", { fg: theme.muted, wrapMode: "none" });
   controlsPanel.add(controlsText);
-  const modalOverlay = box("gateway-modal-overlay", { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", visible: false, zIndex: 10, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" });
-  const modal = box("gateway-remote-modal", { ...panelProps, flexDirection: "column", width: 44, height: 8, flexShrink: 0, border: true, borderColor: theme.borderActive });
+  const modalOverlay = box("gateway-modal-overlay", { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", visible: false, zIndex: 10, backgroundColor: RGBA.fromInts(0, 0, 0, 150), alignItems: "center", justifyContent: "flex-start", onMouseUp: () => void runAction("modal-close") });
+  const modal = box("gateway-remote-modal", { ...panelProps, flexDirection: "column", width: 44, height: 8, flexShrink: 0, border: true, borderColor: theme.borderActive, onMouseUp: (event) => event?.stopPropagation?.() });
   const modalHelpText = text("gateway-modal-help", "Remote Access", { fg: theme.muted });
   const offButton = box("gateway-modal-off", { width: "auto", height: 1, paddingLeft: 1, paddingRight: 1, onMouseDown: () => void runAction("remote-off") });
   const offText = text("gateway-modal-off-text", "Off");
@@ -66,8 +66,11 @@ export async function attachGatewayOpenTui(deps) {
   modal.add(cloudflareButton);
   modal.add(text("gateway-modal-keys", "up/down enter esc", { fg: theme.muted }));
   modalOverlay.add(modal);
-  const commandOverlay = box("gateway-command-overlay", { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", visible: false, zIndex: 20, backgroundColor: theme.background, alignItems: "center", justifyContent: "center" });
-  const commandModal = box("gateway-command-modal", { ...panelProps, flexDirection: "column", width: 58, height: 16, flexShrink: 0, border: true, borderColor: theme.borderActive });
+  const commandOverlay = box("gateway-command-overlay", { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", visible: false, zIndex: 20, backgroundColor: RGBA.fromInts(0, 0, 0, 150), alignItems: "center", justifyContent: "flex-start", onMouseUp: () => {
+    commandPaletteOpen = false;
+    updateView();
+  } });
+  const commandModal = box("gateway-command-modal", { ...panelProps, flexDirection: "column", width: 58, height: 18, flexShrink: 0, border: true, borderColor: theme.borderActive, onMouseUp: (event) => event?.stopPropagation?.() });
   const commandTitleRow = box("gateway-command-title-row", { width: "auto", height: 1, flexShrink: 0 });
   const commandTitle = text("gateway-command-title", "Command", { fg: theme.text, wrapMode: "none" });
   commandTitleRow.add(commandTitle);
@@ -77,7 +80,7 @@ export async function attachGatewayOpenTui(deps) {
   const commandRows = [];
   commandModal.add(commandTitleRow);
   commandModal.add(commandInputRow);
-  for (let index = 0; index < 9; index += 1) {
+  for (let index = 0; index < 11; index += 1) {
     const row = box(`gateway-command-row-${index}`, { width: "auto", height: 1, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", paddingLeft: 1, paddingRight: 1, backgroundColor: theme.panel });
     const rowText = text(`gateway-command-row-text-${index}`, "", { fg: theme.text, wrapMode: "none" });
     const shortcutText = text(`gateway-command-row-shortcut-${index}`, "", { fg: theme.muted, wrapMode: "none" });
@@ -102,6 +105,14 @@ export async function attachGatewayOpenTui(deps) {
 
   function selected() {
     return selectedInboxInstance(inbox, inboxIndex);
+  }
+
+  function firstDevServer() {
+    for (const instance of status?.instances || []) {
+      const server = Array.isArray(instance.devServers) ? instance.devServers[0] : undefined;
+      if (server?.port) return { ...server, instanceId: instance.instanceId };
+    }
+    return undefined;
   }
 
   function resetDialogState() {
@@ -268,9 +279,11 @@ export async function attachGatewayOpenTui(deps) {
       { id: "status", label: "Status", shortcut: "1", action: "tab-status", enabled: activeTab !== "status" },
       { id: "inbox", label: "Inbox", shortcut: "2", action: "tab-inbox", enabled: activeTab !== "inbox" },
       { id: "gateway", label: status ? "Stop gateway" : "Start gateway", shortcut: "space", action: "toggle-gateway", enabled: true },
+      { id: "restart", label: "Restart gateway", shortcut: "r", action: "restart-gateway", enabled: true },
       { id: "remote", label: "Remote access", shortcut: "t", action: "open-remote-picker", enabled: !!status },
       { id: "keep-awake", label: "Toggle keep awake", shortcut: "k", action: "toggle-keep-awake", enabled: !!status },
       { id: "client", label: "Connect client", shortcut: "c", action: "connect-client", enabled: inviteAvailable() },
+      { id: "dev-server", label: "Open dev server", shortcut: "o", action: "open-dev-server", enabled: activeTab === "status" && !!firstDevServer() },
       { id: "dismiss", label: "Dismiss question", shortcut: "esc", action: "inbox-reject", enabled: activeTab === "inbox" && !!instance?.question?.id },
       { id: "send", label: "Submit answer", shortcut: "enter", action: "inbox-submit", enabled: activeTab === "inbox" && sendAvailable() },
       { id: "quit", label: "Close TUI", shortcut: "q", action: "quit", enabled: true },
@@ -343,9 +356,11 @@ export async function attachGatewayOpenTui(deps) {
     inboxScreen.detailPanel.width = "auto";
     modalOverlay.width = terminalWidth;
     modalOverlay.height = renderer.terminalHeight || 24;
+    modalOverlay.paddingTop = Math.floor((renderer.terminalHeight || 24) / 4);
     modal.width = Math.min(44, contentWidth);
     commandOverlay.width = terminalWidth;
     commandOverlay.height = renderer.terminalHeight || 24;
+    commandOverlay.paddingTop = Math.floor((renderer.terminalHeight || 24) / 4);
     commandModal.width = Math.min(58, contentWidth);
   }
 
@@ -674,6 +689,15 @@ export async function attachGatewayOpenTui(deps) {
         await refresh();
         return;
       }
+      if (action === "open-dev-server") {
+        const server = firstDevServer();
+        if (!server) return;
+        const forward = await deps.gatewayForwardToken(server);
+        deps.openDefaultBrowser(forward.url);
+        notice = "opened dev server";
+        updateView();
+        return;
+      }
       if (action === "modal-close") {
         remotePickerOpen = false;
         updateView();
@@ -691,6 +715,11 @@ export async function attachGatewayOpenTui(deps) {
       if (action === "toggle-gateway") {
         if (status) await deps.stopGateway({ quiet: true });
         else await deps.startGateway({ quiet: true });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      if (action === "restart-gateway") {
+        await deps.stopGateway({ quiet: true, preserveState: true });
+        await deps.startGateway({ quiet: true });
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
       if (action === "remote-off") {

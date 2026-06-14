@@ -48,7 +48,13 @@ export function renderStatusScreen(screen, { status, remote, tunnel, qr, qrFits,
   ].filter(Boolean).join("\n");
   screen.instancesTitle.content = `Instances (${status?.instances?.length || 0})`;
   screen.clientsTitle.content = `Clients (${Array.isArray(remote?.clients) ? remote.clients.length : 0})`;
-  screen.instancesText.content = formatRows((status?.instances || []).slice(0, 6).map((instance) => labelValue(instanceLabel(instance), instance.cwd || instance.workspaceLabel || "registered")), "none registered");
+  const instanceRows = (status?.instances || []).slice(0, 6).flatMap((instance) => {
+    const rows = [labelValue(instanceLabel(instance), instance.cwd || instance.workspaceLabel || "registered")];
+    const servers = Array.isArray(instance.devServers) ? instance.devServers : [];
+    for (const server of servers) rows.push(labelValue(`  ↳ ${server.label || `localhost:${server.port}`}`, server.source || "dev server"));
+    return rows;
+  });
+  screen.instancesText.content = formatRows(instanceRows, "none registered");
   screen.clientsText.content = clientStatus(remote);
   const showQr = remote?.enabled && (!remote.connected || inviteQrVisible) && qrFits;
   const countdown = remote?.secondsRemaining > 0 ? ` (${remote.secondsRemaining}s)` : "";

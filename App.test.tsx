@@ -3,6 +3,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 const mockClearActiveSession = jest.fn(async () => undefined);
 const mockClearConnection = jest.fn(async () => undefined);
 const mockOpenRemoteDisconnect = jest.fn(() => new Promise(() => undefined));
+const mockModelLimits = jest.fn(async () => ({}));
+const mockOpenRemoteSnapshot = jest.fn(async () => ({
+  ok: true,
+  status: { instanceId: "test", activeSessionIds: ["session-1"], allowNewSessions: true, connected: true, lastHeartbeatAt: Date.now() },
+  sessions: [{ id: "session-1", title: "test session", directory: "/tmp", time: { created: Date.now(), updated: Date.now() } }],
+  sessionStatus: {},
+  permissions: [],
+  questions: [],
+}));
 
 jest.mock("./src/ConnectScreen", () => {
   const React = require("react");
@@ -14,8 +23,9 @@ jest.mock("./src/SessionsScreen", () => {
   const React = require("react");
   const { Pressable, Text, View } = require("react-native");
   return {
-    SessionsScreen: ({ onDisconnect }: { onDisconnect: () => void }) => React.createElement(View, null,
+    SessionsScreen: ({ sessions, onDisconnect }: { sessions: { title?: string; id: string }[]; onDisconnect: () => void }) => React.createElement(View, null,
       React.createElement(Text, null, "Sessions"),
+      sessions.map((session) => React.createElement(Text, { key: session.id }, session.title ?? session.id)),
       React.createElement(Pressable, { onPress: onDisconnect }, React.createElement(Text, null, "disconnect")),
     ),
   };
@@ -55,8 +65,9 @@ jest.mock("./src/opencode", () => ({
     executeTuiCommand: jest.fn(async () => undefined),
     heartbeat: jest.fn(async () => ({ instanceId: "test", activeSessionIds: ["session-1"], allowNewSessions: true, connected: true, lastHeartbeatAt: Date.now() })),
     health: jest.fn(async () => ({ healthy: true, version: "test" })),
-    modelLimits: jest.fn(async () => ({})),
+    modelLimits: mockModelLimits,
     openRemoteDisconnect: mockOpenRemoteDisconnect,
+    openRemoteSnapshot: mockOpenRemoteSnapshot,
     openRemoteStatus: jest.fn(async () => ({ instanceId: "test", activeSessionIds: ["session-1"], allowNewSessions: true, connected: true, lastHeartbeatAt: Date.now() })),
     permissions: jest.fn(async () => []),
     questions: jest.fn(async () => []),
@@ -71,6 +82,15 @@ const App = require("./App").default as typeof import("./App").default;
 describe("App disconnect", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockModelLimits.mockResolvedValue({});
+    mockOpenRemoteSnapshot.mockResolvedValue({
+      ok: true,
+      status: { instanceId: "test", activeSessionIds: ["session-1"], allowNewSessions: true, connected: true, lastHeartbeatAt: Date.now() },
+      sessions: [{ id: "session-1", title: "test session", directory: "/tmp", time: { created: Date.now(), updated: Date.now() } }],
+      sessionStatus: {},
+      permissions: [],
+      questions: [],
+    });
   });
 
   it("returns home before remote disconnect finishes", async () => {
@@ -83,5 +103,13 @@ describe("App disconnect", () => {
     expect(mockClearConnection).toHaveBeenCalled();
     expect(mockClearActiveSession).toHaveBeenCalled();
     expect(mockOpenRemoteDisconnect).toHaveBeenCalled();
+  });
+
+  it("shows snapshot sessions when model metadata fails", async () => {
+    mockModelLimits.mockRejectedValueOnce(new Error("invalid json"));
+
+    render(<App />);
+
+    expect(await screen.findByText("test session")).toBeTruthy();
   });
 });

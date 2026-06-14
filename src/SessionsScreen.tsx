@@ -1,13 +1,17 @@
-import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { Alert, FlatList, Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { useMemo } from "react";
+import * as WebBrowser from "expo-web-browser";
 
 import { CommandButton, RailPanel, StatusLine, TerminalText } from "./components";
-import type { OpencodeClient, QuestionRequest, Session } from "./opencode";
+import type { DevServer, OpencodeClient, OpenRemoteInstance, QuestionRequest, Session } from "./opencode";
 import { colors, spacing } from "./theme";
 
 type Props = {
   client: OpencodeClient;
   sessions: Session[];
+  instances: OpenRemoteInstance[];
   questions: QuestionRequest[];
+  devServers: DevServer[];
   serverUrl: string;
   busy: boolean;
   allowNewSessions: boolean;
@@ -18,7 +22,38 @@ type Props = {
   onSettings: () => void;
 };
 
-export function SessionsScreen({ sessions, questions, serverUrl, busy, allowNewSessions, onCreate, onOpen, onOpenInbox, onDisconnect, onSettings }: Props) {
+export function SessionsScreen({ client, sessions, instances, questions, devServers, serverUrl, busy, allowNewSessions, onCreate, onOpen, onOpenInbox, onDisconnect, onSettings }: Props) {
+  const devServersBySession = useMemo(() => {
+    const next = new Map<string, DevServer[]>();
+    for (const server of devServers) {
+      if (!server.sessionId) continue;
+      const current = next.get(server.sessionId) ?? [];
+      current.push(server);
+      next.set(server.sessionId, current);
+    }
+    return next;
+  }, [devServers]);
+
+  async function openDevServer(server: DevServer) {
+    const result = await client.createForwardToken({ instanceId: server.instanceId, sessionId: server.sessionId, port: server.port });
+    try {
+      await WebBrowser.openBrowserAsync(result.url, {
+        createTask: false,
+        dismissButtonStyle: "close",
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+        showInRecents: false,
+        showTitle: true,
+      });
+    } catch (error) {
+      if (Platform.OS === "web") {
+        await Linking.openURL(result.url);
+        return;
+      }
+      console.warn("Failed to open dev server browser sheet", error);
+      Alert.alert("Could not open dev server", "Browser sheet is unavailable in this app build.");
+    }
+  }
+
   return (
     <View style={styles.wrap}>
       <StatusLine
@@ -40,9 +75,9 @@ export function SessionsScreen({ sessions, questions, serverUrl, busy, allowNewS
         style={styles.sessionsList}
         data={sessions}
         keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => <SessionRow index={index} session={item} onPress={() => onOpen(item)} />}
+        renderItem={({ item, index }) => <SessionRow index={index} session={item} devServers={devServersBySession.get(item.id) ?? []} onPress={() => onOpen(item)} onOpenDevServer={openDevServer} />}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<TerminalText tone="muted" style={styles.sessionsEmpty}>{allowNewSessions ? "No sessions. Tap `new`." : "No active desktop session."}</TerminalText>}
+        ListEmptyComponent={<EmptySessions instances={instances} allowNewSessions={allowNewSessions} />}
         ListFooterComponent={(
           <>
             <RailPanel tone="pink" style={styles.inboxPanel}>
@@ -68,6 +103,32 @@ export function SessionsScreen({ sessions, questions, serverUrl, busy, allowNewS
   );
 }
 
+function EmptySessions({ instances, allowNewSessions }: { instances: OpenRemoteInstance[]; allowNewSessions: boolean }) {
+  if (!instances.length) return <TerminalText tone="muted" style={styles.sessionsEmpty}>{allowNewSessions ? "No sessions. Tap `new`." : "No active desktop session."}</TerminalText>;
+  return (
+    <View style={styles.instanceList}>
+      <TerminalText tone="muted" style={styles.sessionsEmpty}>Gateway instances connected. Waiting for active session.</TerminalText>
+      {instances.slice(0, 6).map((instance) => <InstanceRow key={instance.instanceId} instance={instance} />)}
+    </View>
+  );
+}
+
+function InstanceRow({ instance }: { instance: OpenRemoteInstance }) {
+  const activeIds = Array.isArray(instance.activeSessionIds) ? instance.activeSessionIds : [];
+  const label = activeIds[0] || instance.instanceId;
+  const detail = instance.cwd || instance.workspaceLabel || "registered";
+
+  return (
+    <View style={styles.instanceRow}>
+      <TerminalText tone="cyan">•</TerminalText>
+      <View style={styles.rowBody}>
+        <TerminalText bold>{label}</TerminalText>
+        <TerminalText tone="muted" size={13}>{detail}</TerminalText>
+      </View>
+    </View>
+  );
+}
+
 function serverLabel(url: string) {
   try {
     return new URL(url).host;
@@ -76,17 +137,38 @@ function serverLabel(url: string) {
   }
 }
 
-function SessionRow({ index, session, onPress }: { index: number; session: Session; onPress: () => void }) {
+function SessionRow({ index, session, devServers, onPress, onOpenDevServer }: { index: number; session: Session; devServers: DevServer[]; onPress: () => void; onOpenDevServer: (server: DevServer) => void }) {
   const updated = new Date(session.time.updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <Pressable onPress={onPress} style={styles.row}>
-      <TerminalText tone="dim">{String(index + 1).padStart(2, "0")}</TerminalText>
+    <View style={styles.sessionGroup}>
+      <Pressable onPress={onPress} style={styles.row}>
+        <TerminalText tone="dim">{String(index + 1).padStart(2, "0")}</TerminalText>
+        <View style={styles.rowBody}>
+          <TerminalText bold>{session.title || "untitled"}</TerminalText>
+          <TerminalText tone="muted" size={13}>{session.directory}</TerminalText>
+        </View>
+        <TerminalText tone="muted" size={13}>{updated}</TerminalText>
+      </Pressable>
+      {devServers.length ? (
+        <View style={styles.devServerList}>
+          <TerminalText tone="muted" size={13} style={styles.devServerTitle}>Dev Servers</TerminalText>
+          {devServers.map((server) => <DevServerRow key={server.id || `${server.sessionId}:${server.port}`} server={server} onPress={() => onOpenDevServer(server)} />)}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DevServerRow({ server, onPress }: { server: DevServer; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={styles.devServerRow}>
+      <TerminalText tone="cyan">↳</TerminalText>
       <View style={styles.rowBody}>
-        <TerminalText bold>{session.title || "untitled"}</TerminalText>
-        <TerminalText tone="muted" size={13}>{session.directory}</TerminalText>
+        <TerminalText bold>{server.label || `localhost:${server.port}`}</TerminalText>
+        <TerminalText tone="muted" size={13}>{server.source || "detected"}</TerminalText>
       </View>
-      <TerminalText tone="muted" size={13}>{updated}</TerminalText>
+      <TerminalText tone="cyan" size={13}>open</TerminalText>
     </Pressable>
   );
 }
@@ -142,8 +224,21 @@ const styles = StyleSheet.create({
   sessionsEmpty: {
     textAlign: "center",
   },
+  instanceList: {
+    gap: spacing.sm,
+  },
+  instanceRow: {
+    alignItems: "center",
+    backgroundColor: colors.panel2,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md,
+  },
   separator: {
     height: 1,
+  },
+  sessionGroup: {
+    gap: spacing.xs,
   },
   row: {
     alignItems: "center",
@@ -155,6 +250,20 @@ const styles = StyleSheet.create({
   rowBody: {
     flex: 1,
     gap: spacing.xs,
+  },
+  devServerList: {
+    gap: spacing.xs,
+    marginLeft: spacing.xl,
+  },
+  devServerTitle: {
+    paddingLeft: spacing.md,
+  },
+  devServerRow: {
+    alignItems: "center",
+    backgroundColor: colors.panel2,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md,
   },
   inboxPanel: {
     marginTop: spacing.md,
