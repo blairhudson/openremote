@@ -312,7 +312,7 @@ export class OpencodeClient {
     return this.unwrap<boolean>(this.client.tui.showToast({ body: { title: "openremote", message, variant: "info", duration: 2500 } }));
   }
 
-  events(onEvent: (event: StreamEvent) => void, onUnknown: () => void) {
+  events(onEvent: (event: StreamEvent) => void, onUnknown: () => void): (() => void) & { source: EventSource } {
     const source = new EventSource(`${this.settings.baseUrl}/global/event`, {
       headers: { ...authHeaders(this.settings), ...openRemoteHeaders(this.settings) },
     } as never);
@@ -324,13 +324,14 @@ export class OpencodeClient {
     };
 
     source.addEventListener("message", handleEvent as never);
-    return () => {
+    const stop = () => {
       try {
         source.removeEventListener("message", handleEvent as never);
       } finally {
         source.close();
       }
     };
+    return Object.assign(stop, { source });
   }
 
   openRemoteEvents(onEvent: (event: StreamEvent) => void, onUnknown: () => void) {

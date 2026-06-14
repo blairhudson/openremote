@@ -2,6 +2,7 @@ import { JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraB
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, StyleSheet, View } from "react-native";
+import EventSource from "react-native-sse";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ChatScreen } from "./src/ChatScreen";
@@ -82,6 +83,7 @@ export default function App() {
   const heartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionGeneration = useRef(0);
   const reconnectStartedAt = useRef(0);
+  const sseReadyPromise = useRef<Promise<void> | null>(null);
   const livePartsRef = useRef<Record<string, Record<string, Part>>>({});
   const sessionsRef = useRef<Session[]>([]);
   const sessionStatusRef = useRef<Record<string, SessionStatus>>({});
@@ -156,7 +158,15 @@ export default function App() {
     const stop = client.events(
       (event) => queueStreamEvent(event, client, activeSessionIdRef.current, generation),
       () => undefined,
-    );
+    ) as unknown as (() => void) & { source: EventSource };
+    const source = stop.source;
+    // Set ready promise for AppState handler
+    sseReadyPromise.current = new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 5000); // 5s fallback
+      const onOpen = () => { clearTimeout(timeout); resolve(); };
+      if (source.readyState === EventSource.OPEN) onOpen();
+      else source.addEventListener("open", onOpen as never);
+    });
     return () => {
       stop();
     };
