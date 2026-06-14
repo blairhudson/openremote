@@ -215,13 +215,21 @@ export default function App() {
   function filterActiveSessions(nextSessions: Session[], status = openRemoteStatusRef.current) {
     if (!status) return nextSessions;
     const activeIds = new Set(status.activeSessionIds);
-    return nextSessions.filter((session) => activeIds.has(session.id));
+    const activeSession = activeRef.current;
+    const filtered = nextSessions.filter((session) => activeIds.has(session.id));
+    if (activeSession && !filtered.some((s) => s.id === activeSession.id)) {
+      filtered.push(activeSession);
+    }
+    return filtered;
   }
 
   function filterActiveQuestions(nextQuestions: QuestionRequest[], status = openRemoteStatusRef.current) {
     if (!status) return nextQuestions;
     const activeIds = new Set(status.activeSessionIds);
-    return nextQuestions.filter((question) => activeIds.has(question.sessionID));
+    return nextQuestions.filter((question) => {
+      if (activeRef.current && question.sessionID === activeRef.current.id) return true;
+      return activeIds.has(question.sessionID);
+    });
   }
 
   function sameActiveSessionIds(left: OpenRemoteStatus | null, right: OpenRemoteStatus | null) {
@@ -1030,20 +1038,23 @@ function upsertMessage(messages: MessageBundle[], info: Message) {
 
 function announceSession(client: OpencodeClient, session: Session, keepAwakeMode: KeepAwakeMode) {
   const device = deviceName();
+  const clientId = client.settings?.clientId ?? "";
   void client.executeTuiCommand("openremote.connected").catch(() => undefined);
-  void client.showToast(`openremote connected: ${device} session=${session.id} keepawake=${keepAwakeMode}`).catch(() => undefined);
+  void client.showToast(`openremote connected: ${device} session=${session.id} keepawake=${keepAwakeMode} clientId=${clientId}`).catch(() => undefined);
 }
 
 function announceWaiting(client: OpencodeClient, showToast = true, keepAwakeMode: KeepAwakeMode = "auto") {
+  const clientId = client.settings?.clientId ?? "";
   void client.executeTuiCommand("openremote.waiting").catch(() => undefined);
-  if (showToast) void client.showToast(`openremote waiting keepawake=${keepAwakeMode}`).catch(() => undefined);
+  if (showToast) void client.showToast(`openremote waiting keepawake=${keepAwakeMode} clientId=${clientId}`).catch(() => undefined);
 }
 
 async function announceDisconnected(client: OpencodeClient) {
+  const clientId = client.settings?.clientId ?? "";
   await Promise.allSettled([
     client.openRemoteDisconnect(),
     client.executeTuiCommand("openremote.disconnected"),
-    client.showToast("openremote disconnected"),
+    client.showToast(`openremote disconnected clientId=${clientId}`),
   ]);
 }
 
