@@ -117,6 +117,7 @@ jobs:
             let patch = Number(match[3]);
 
             switch (bump) {
+              case "none":
               case "build":
                 break;
               case "major":
@@ -144,12 +145,6 @@ jobs:
           const buildOnly = appVersionMode === "build";
           const publishNpm = process.env.PUBLISH_NPM === "true";
           const npmBump = publishNpm ? process.env.NPM_VERSION_BUMP : "none";
-          const releaseMobile = process.env.ANDROID_PLAY === "true" || process.env.IOS_TESTFLIGHT === "true";
-
-          if (releaseMobile && buildOnly && npmBump !== "none") {
-            throw new Error("Cannot bump npm version while keeping the app version for mobile release");
-          }
-
           const appVersion = buildOnly ? currentAppVersion : bumpVersion(currentAppVersion, appVersionMode, "app.json expo.version");
           const releaseTag = `v${appVersion}`;
           const npmVersion = bumpVersion(currentNpmVersion, npmBump, "packages/opencode-plugin/package.json version");
@@ -207,7 +202,7 @@ jobs:
           git push origin "${{ steps.version.outputs.release_tag }}"
 
       - name: Commit npm package release
-        if: ${{ inputs.version_bump == 'build' && !inputs.android_play && !inputs.ios_testflight && inputs.publish_npm && inputs.npm_version_bump != 'none' }}
+        if: ${{ inputs.version_bump == 'build' && inputs.publish_npm && inputs.npm_version_bump != 'none' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
