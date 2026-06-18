@@ -1,0 +1,14 @@
+---
+interface Props {
+  docs?: boolean;
+}
+
+import { discordUrl, repoUrl } from "../content/site-links";
+
+const { docs = false } = Astro.props;
+---
+
+<footer class:list={["footer", { "docs-footer": docs }]}>
+  <span><a class="inline-link" href="/privacy">Privacy</a> / <a class="inline-link" href={repoUrl} target="_blank" rel="noreferrer">GitHub</a> / <a class="inline-link" href={discordUrl} target="_blank" rel="noreferrer">Discord</a></span>
+  <span class="footer-notice">OpenRemote is an independent project by Blair Hudson. It is not built by the OpenCode team and is not affiliated with OpenCode. See <a class="inline-link" href="https://opencode.ai/" target="_blank" rel="noreferrer">opencode.ai</a> for official OpenCode information.</span>
+</footer>
