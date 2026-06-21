@@ -187,9 +187,11 @@ const dependencies = [
   {
     id: "dependency-openremote-proxy-auth",
     title: "OpenCode server password with LAN startup",
-    text: "OpenCode built-in OPENCODE_SERVER_PASSWORD currently fails with --mdns or --hostname startup. Until this is fixed, password-protected OpenRemote connections require the OpenRemote plugin.",
-    href: "https://github.com/anomalyco/opencode/issues/29847",
-    label: "Related: anomalyco/opencode#29847",
+    status: "Implemented",
+    statusTone: "completed",
+    text: "OpenCode upstream support for OPENCODE_SERVER_PASSWORD in the run path has been fixed and merged. OpenRemote can treat this dependency as implemented once users are on an OpenCode release containing the fix.",
+    href: "https://github.com/anomalyco/opencode/issues/24204",
+    label: "Fixed upstream: anomalyco/opencode#24204",
   },
 ];
 ---
@@ -295,6 +297,9 @@ const dependencies = [
         <div class="feature-roadmap-grid dependency-grid">
           {dependencies.map((dependency) => (
             <article id={dependency.id} class="feature-roadmap-card dependency-card">
+              <div class="feature-status-row">
+                <span class={`status-pill status-pill-${dependency.statusTone}`}>{dependency.status}</span>
+              </div>
               <h3>{dependency.title}</h3>
               <p>{dependency.text}</p>
               <a class="inline-link" href={dependency.href} target="_blank" rel="noreferrer">{dependency.label}</a>
