@@ -50,7 +50,8 @@
     "react-native": "0.83.6",
     "react-native-markdown-display": "^7.0.2",
     "react-native-sse": "^1.2.1",
-    "react-native-zeroconf": "^0.14.0"
+    "react-native-zeroconf": "^0.14.0",
+    "react-native-worklets": "^0.9.2"
   },
   "devDependencies": {
     "@babel/runtime": "^7.28.4",
