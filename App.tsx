@@ -37,6 +37,7 @@ import {
 import { colors, spacing } from "./src/theme";
 import { SessionsScreen } from "./src/SessionsScreen";
 import { SettingsScreen, type TunnelCapability } from "./src/SettingsScreen";
+import { registerForPushNotificationsAsync } from "./src/pushNotifications";
 
 const disconnectedHeartbeatMs = 5000;
 const defaultHeartbeatTimeoutSeconds = 30;
@@ -568,6 +569,11 @@ export default function App() {
       setSettings(next);
       if (snapshot) applyOpenRemoteSnapshot(snapshot, generation);
       void sendKeepAwakeMode(nextClient, modeOverride ?? keepAwakeMode);
+      void registerForPushNotificationsAsync()
+        .then((token) => {
+          if (token) void nextClient.sendPushToken(token);
+        })
+        .catch(() => undefined);
       if (isGatewayWaiting(status)) {
         setCommands([]);
         setModelLimits({});

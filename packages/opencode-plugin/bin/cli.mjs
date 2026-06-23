@@ -752,10 +752,96 @@ function sendGatewayEvent(clients, type, payload) {
   }
 }
 
+async function sendPushNotification(expoPushToken, title, body, data) {
+  console.log(`[${new Date().toISOString()}] Push sending: expoPushToken: ${expoPushToken}, title: ${title}, body: ${body}, data: ${JSON.stringify(data)}\n`);
+  const message = {
+    to: expoPushToken,
+    sound: "default",
+    title,
+    body,
+    data,
+  };
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Accept-encoding": "gzip, deflate",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(message),
+    });
+  } catch (err) {
+    try { await appendFile(gatewayLogPath, `[${new Date().toISOString()}] Push sending failed: ${err?.message || err}\n`); } catch {}
+  }
+}
+
 async function sendGatewaySnapshotEvents(clients, state, config, instances) {
+  const nextSnapshotMap = new Map();
   await Promise.all([...clients].map(async (client) => {
-    sendGatewayEvent(new Set([client]), "openremote.snapshot", await gatewaySnapshot(state, config, instances, undefined, client.clientId));
+    const snapshot = await gatewaySnapshot(state, config, instances, undefined, client.clientId);
+    nextSnapshotMap.set(client.clientId, snapshot);
+    sendGatewayEvent(new Set([client]), "openremote.snapshot", snapshot);
   }));
+
+  // For any client who is registered but NOT in the active SSE connection list (gatewayEventClients/clients)
+  // Check if they have new questions, permissions, or completed tasks to trigger push notifications
+  const connectedClientIds = new Set([...clients].map((c) => c.clientId));
+  const savedClients = Array.isArray(state.gatewayClients) ? state.gatewayClients : [];
+
+  for (const client of savedClients) {
+    console.log(`[${new Date().toISOString()}] Checking push notifications for client: ${client.clientId}, pushToken: ${client.pushToken}`);
+    if (!client.pushToken || !client.clientId || connectedClientIds.has(client.clientId)) continue;
+
+    // Generate snapshot for this offline client to determine if we should send pushes
+    const snapshot = await gatewaySnapshot(state, config, instances, undefined, client.clientId);
+    const lastSnap = client.lastPushSnapshot || { permissions: [], questions: [], sessionStatus: {} };
+
+    // 1. New Permissions requested
+    const newPermissions = (snapshot.permissions || []).filter((p) => !lastSnap.permissions.some((lp) => lp.id === p.id));
+    if (newPermissions.length > 0) {
+      await sendPushNotification(
+        client.pushToken,
+        "Permission Requested",
+        `OpenCode is waiting for permission: ${newPermissions[0].permission}`,
+        { type: "permission.asked", id: newPermissions[0].id }
+      );
+    }
+
+    // 2. New Questions asked
+    const newQuestions = (snapshot.questions || []).filter((q) => !lastSnap.questions.some((lq) => lq.id === q.id));
+    if (newQuestions.length > 0) {
+      await sendPushNotification(
+        client.pushToken,
+        "Question Asked",
+        `OpenCode is waiting for your reply: ${newQuestions[0].questions?.[0]?.question || "New question asked"}`,
+        { type: "question.asked", id: newQuestions[0].id }
+      );
+    }
+
+    // 3. Task / Session Completed (transition to idle)
+    for (const [sid, currentStatus] of Object.entries(snapshot.sessionStatus || {})) {
+      const prevStatus = lastSnap.sessionStatus[sid];
+      // Check if status is now idle and previous status was not idle (meaning a task just completed)
+      if (currentStatus === "idle" && prevStatus && prevStatus !== "idle") {
+        const session = (snapshot.sessions || []).find((s) => s.id === sid);
+        const title = session?.title || "Task completed";
+        await sendPushNotification(
+          client.pushToken,
+          "Task Completed",
+          `Agent finished running: "${title}"`,
+          { type: "session.idle", sessionId: sid }
+        );
+      }
+    }
+
+    // Save current snapshot state so we don't repeat notifications
+    client.lastPushSnapshot = {
+      permissions: snapshot.permissions || [],
+      questions: snapshot.questions || [],
+      sessionStatus: snapshot.sessionStatus || {},
+    };
+  }
 }
 
 function sendNoInstanceFallback(req, res, url) {
@@ -1615,6 +1701,30 @@ async function runGatewayDaemon() {
         await writeJson(gatewayConfigPath, config);
       }
       sendJson(res, 200, gatewaySummary(state, config, instances, workspaces));
+      return;
+    }
+    if (url.pathname === "/openremote/push-token" && req.method === "POST") {
+        console.log("Received push token request");
+      if (!config.remoteAccessEnabled) {
+        sendJson(res, 503, { ok: false, error: "remote_access_disabled", remoteAccess: { enabled: false } });
+        return;
+      }
+      const auth = gatewayAppAuth(req, state, config);
+      if (!auth.ok) {
+        res.writeHead(401, { "www-authenticate": "Basic realm=\"OpenRemote Gateway\"" });
+        res.end("Unauthorized");
+        return;
+      }
+      const payload = await readJsonRequest(req);
+      console.log("Push token payload:", payload);
+      if (payload.pushToken && typeof payload.pushToken === "string") {
+        const client = gatewayClientForRequest(state, req);
+        if (client) {
+          client.pushToken = payload.pushToken;
+          await writeGatewayState(state);
+        }
+      }
+      sendJson(res, 200, { ok: true });
       return;
     }
     if (!config.remoteAccessEnabled) {

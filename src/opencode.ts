@@ -238,6 +238,17 @@ export class OpencodeClient {
     }
   }
 
+  async sendPushToken(pushToken: string) {
+    try {
+      return await this.request<{ ok: boolean }>("/openremote/push-token", {
+        method: "POST",
+        body: JSON.stringify({ pushToken }),
+      });
+    } catch {
+      return null;
+    }
+  }
+
   createForwardToken(request: { instanceId?: string; sessionId?: string; port: number }) {
     return this.request<ForwardToken>("/openremote/forward-token", { method: "POST", body: JSON.stringify(request) });
   }
