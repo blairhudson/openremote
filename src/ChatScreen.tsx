@@ -192,6 +192,28 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     slideComposerTo("prompt", false);
   }, [session.id]);
 
+  useEffect(() => {
+    void (async () => {
+      const saved = await client.config();
+      setConfig(saved);
+      if (saved.model) {
+        const providers = await client.providers();
+        const modelName = saved.model;
+        for (const provider of providers.all) {
+          if (!providers.connected?.includes(provider.id)) continue;
+          for (const [key, model] of Object.entries(provider.models)) {
+            const modelID = model.id || key;
+            const modelNameMatch = model.name || displayModel(modelID);
+            if (modelNameMatch === modelName || modelID === modelName) {
+              setSelectedModel({ providerID: provider.id, modelID: modelID });
+              return;
+            }
+          }
+        }
+      }
+    })();
+  }, [client]);
+
   async function send() {
     const text = prompt.trim();
     if (!text) return;
@@ -283,6 +305,12 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     const next = await client.updateConfig({ ...current, theme });
     setConfig(next);
     setModalCommand(null);
+  }
+
+  async function saveModel(model: SelectedModel) {
+    const current = config ?? (await client.config());
+    const next = await client.updateConfig({ ...current, model: model.modelID });
+    setConfig(next);
   }
 
   async function runCommand(command: SlashCommand) {
@@ -474,12 +502,17 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
         }}
         onSelectModel={(model) => {
           setSelectedModel(model);
+          void saveModel(model);
           if (model.reasoning) setModalCommand("variants");
           else setModalCommand(null);
         }}
         onSelectVariant={(variant) => {
           setSelectedVariant(variant);
-          setSelectedModel((model) => withVariant(model, variant));
+          setSelectedModel((model) => {
+            const next = withVariant(model, variant);
+            void saveModel(next);
+            return next;
+          });
           setModalCommand(null);
         }}
         onSelectTheme={(theme) => void selectTheme(theme)}
