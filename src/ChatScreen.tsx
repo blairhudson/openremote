@@ -307,7 +307,9 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
     setModalCommand(null);
   }
 
-  async function saveModel(model: SelectedModel) {
+  async function saveModel(model: SelectedModel | undefined) {
+    if (!model) return;
+
     const current = config ?? (await client.config());
     const next = await client.updateConfig({ ...current, model: model.modelID });
     setConfig(next);
@@ -1534,7 +1536,7 @@ function withSelectionStatus(status: PromptStatus, agent: string, model: Selecte
   };
 }
 
-function withVariant(model: SelectedModel | undefined, variant: string) {
+function withVariant(model: SelectedModel | undefined, variant: string): SelectedModel | undefined {
   if (!model) return undefined;
   return { providerID: model.providerID, modelID: model.modelID, variant };
 }
