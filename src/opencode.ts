@@ -304,6 +304,12 @@ export class OpencodeClient {
     return this.unwrap<boolean>(this.client.tui.executeCommand({ body: { command } }));
   }
 
+  compactSession(sessionId: string, model?: SelectedModel) {
+    const providerID = model?.providerID ?? "openai";
+    const modelID = model?.modelID ?? "gpt-4o";
+    return this.unwrap<boolean>(this.client.session.summarize({ path: { id: sessionId }, body: { providerID, modelID } }));
+  }
+
   cycleDesktopAgent() {
     return this.executeTuiCommand("agent_cycle");
   }
