@@ -237,7 +237,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
       return;
     }
 
-    if (command.name === "compact") await client.executeTuiCommand("session_compact");
+    if (command.name === "compact") await client.compactSession(session.id, selectedModel);
     if (command.name === "undo") {
       const latest = latestUserMessageId(messages);
       if (latest) await client.revertMessage(session.id, latest);
