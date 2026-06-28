@@ -96,7 +96,7 @@ export function ConnectScreen({ initial, localRecent, tunnelRecent, busy, error,
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.wrap}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.wrap}>
       <ScrollView alwaysBounceVertical={false} bounces={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" overScrollMode="never">
         <View style={styles.logoWrap}>
           <OpenRemoteWordmark />

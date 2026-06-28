@@ -2,6 +2,7 @@ import { JetBrainsMono_500Medium, JetBrainsMono_700Bold, JetBrainsMono_800ExtraB
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, StyleSheet, View } from "react-native";
+import EventSource from "react-native-sse";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ChatScreen } from "./src/ChatScreen";
@@ -82,6 +83,7 @@ export default function App() {
   const heartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionGeneration = useRef(0);
   const reconnectStartedAt = useRef(0);
+  const sseReadyPromise = useRef<Promise<void> | null>(null);
   const livePartsRef = useRef<Record<string, Record<string, Part>>>({});
   const sessionsRef = useRef<Session[]>([]);
   const sessionStatusRef = useRef<Record<string, SessionStatus>>({});
@@ -215,13 +217,21 @@ export default function App() {
   function filterActiveSessions(nextSessions: Session[], status = openRemoteStatusRef.current) {
     if (!status) return nextSessions;
     const activeIds = new Set(status.activeSessionIds);
-    return nextSessions.filter((session) => activeIds.has(session.id));
+    const activeSession = activeRef.current;
+    const filtered = nextSessions.filter((session) => activeIds.has(session.id));
+    if (activeSession && !filtered.some((s) => s.id === activeSession.id)) {
+      filtered.push(activeSession);
+    }
+    return filtered;
   }
 
   function filterActiveQuestions(nextQuestions: QuestionRequest[], status = openRemoteStatusRef.current) {
     if (!status) return nextQuestions;
     const activeIds = new Set(status.activeSessionIds);
-    return nextQuestions.filter((question) => activeIds.has(question.sessionID));
+    return nextQuestions.filter((question) => {
+      if (activeRef.current && question.sessionID === activeRef.current.id) return true;
+      return activeIds.has(question.sessionID);
+    });
   }
 
   function sameActiveSessionIds(left: OpenRemoteStatus | null, right: OpenRemoteStatus | null) {
@@ -765,11 +775,19 @@ export default function App() {
     if (!client || !allowNewSessions) return;
     const session = await client.createSession();
     if (!session?.id) throw new Error("opencode did not return a session id");
+    setMessages([]);
+    setLivePartsByMessage({});
+    livePartsRef.current = {};
     setActive(session);
     activeRef.current = session;
     await saveActiveSession(session.id);
-    announceSession(client, session, keepAwakeMode);
-    await refresh(client, session.id);
+    if (client) announceSession(client, session, keepAwakeMode);
+    if (!client) return;
+    const generation = connectionGeneration.current;
+    void refresh(client, session.id, false, false, generation, false);
+    const nextMessages = await client.messages(session.id);
+    if (!isCurrentGeneration(generation) || activeRef.current?.id !== session.id) return;
+    setMessages(nextMessages);
     return session;
   }
 
@@ -1043,7 +1061,7 @@ async function announceDisconnected(client: OpencodeClient) {
   await Promise.allSettled([
     client.openRemoteDisconnect(),
     client.executeTuiCommand("openremote.disconnected"),
-    client.showToast("openremote disconnected"),
+    client.showToast(`openremote disconnected`),
   ]);
 }
 

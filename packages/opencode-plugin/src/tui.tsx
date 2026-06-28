@@ -35,8 +35,7 @@ function profileEnabled() {
 }
 
 function profileThresholdMs() {
-  const value = Number(process.env.OPENCODE_REMOTE_PROFILE_THRESHOLD_MS ?? 50);
-  return Number.isFinite(value) && value >= 0 ? value : 50;
+  return remoteNumber("OPENCODE_REMOTE_PROFILE_THRESHOLD_MS", 50, 0);
 }
 
 function profileLog(label: string, start: number) {
@@ -66,6 +65,17 @@ function remoteFlag(name: string, defaultValue = false) {
   const value = process.env[name];
   if (value === undefined) return defaultValue;
   return value.toLowerCase() === "true";
+}
+
+function clamp(value: number, min?: number, max?: number): number {
+  return Math.min(max ?? Infinity, Math.max(min ?? -Infinity, value));
+}
+
+function remoteNumber(name: string, defaultValue: number, min?: number, max?: number): number {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) return defaultValue;
+  const result = Math.floor(value);
+  return max != null || min != null ? clamp(result, min, max) : result;
 }
 
 function allowNewSessions() {
@@ -98,9 +108,7 @@ function gatewayMode() {
 }
 
 function passwordRotationSeconds() {
-  const value = Number(process.env.OPENCODE_REMOTE_SECRET_ROTATION_SECONDS ?? defaultPasswordRotationSeconds);
-  if (!Number.isFinite(value)) return defaultPasswordRotationSeconds;
-  return Math.min(3600, Math.max(0, Math.floor(value)));
+  return remoteNumber("OPENCODE_REMOTE_SECRET_ROTATION_SECONDS", defaultPasswordRotationSeconds, 0, 3600);
 }
 
 function passwordRotationMs() {
@@ -108,19 +116,51 @@ function passwordRotationMs() {
 }
 
 function heartbeatTimeoutSeconds() {
-  const value = Number(process.env.OPENCODE_REMOTE_HEARTBEAT_TIMEOUT_SECONDS ?? defaultHeartbeatTimeoutSeconds);
-  if (!Number.isFinite(value)) return defaultHeartbeatTimeoutSeconds;
-  return Math.min(300, Math.max(5, Math.floor(value)));
+  return remoteNumber("OPENCODE_REMOTE_HEARTBEAT_TIMEOUT_SECONDS", defaultHeartbeatTimeoutSeconds, 5, 300);
 }
 
 function heartbeatTimeoutMs() {
   return heartbeatTimeoutSeconds() * 1000;
 }
 
+const defaultSessionGraceSeconds = 600;
+
+function sessionGraceSeconds() {
+  return remoteNumber("OPENCODE_REMOTE_SESSION_GRACE_SECONDS", defaultSessionGraceSeconds, 5, 7200);
+}
+
+function sessionGraceMs() {
+  return sessionGraceSeconds() * 1000;
+}
+
+function startGraceTimer(clientId: string | undefined) {
+  if (!clientId) return;
+  if (sessionGraceTimers.has(clientId)) {
+    clearTimeout(sessionGraceTimers.get(clientId)!);
+    sessionGraceTimers.delete(clientId);
+  }
+  const timer = setTimeout(() => {
+    const sessions = remoteClientSessions.get(clientId);
+    if (sessions) {
+      sessions.clear();
+      remoteClientSessions.delete(clientId);
+    }
+    sessionGraceTimers.delete(clientId);
+    scheduleGatewayUpdate();
+  }, sessionGraceMs());
+  sessionGraceTimers.set(clientId, timer);
+}
+
+function cancelGraceTimer(clientId: string | undefined) {
+  if (!clientId) return;
+  if (sessionGraceTimers.has(clientId)) {
+    clearTimeout(sessionGraceTimers.get(clientId)!);
+    sessionGraceTimers.delete(clientId);
+  }
+}
+
 function resumeSeconds() {
-  const value = Number(process.env.OPENCODE_REMOTE_RESUME_SECONDS ?? defaultResumeSeconds);
-  if (!Number.isFinite(value)) return defaultResumeSeconds;
-  return Math.min(86400, Math.max(1, Math.floor(value)));
+  return remoteNumber("OPENCODE_REMOTE_RESUME_SECONDS", defaultResumeSeconds, 1, 86400);
 }
 
 function resumeMs() {
@@ -132,9 +172,7 @@ function shouldRotatePassword() {
 }
 
 function maxRemoteClients() {
-  const value = Number(process.env.OPENCODE_REMOTE_MAX_CLIENTS ?? 1);
-  if (!Number.isFinite(value) || value < 0) return 1;
-  return Math.floor(value);
+  return remoteNumber("OPENCODE_REMOTE_MAX_CLIENTS", 1, 0);
 }
 
 function lanHost() {
@@ -300,7 +338,8 @@ let gatewayBootstrapTimers: ReturnType<typeof setTimeout>[] = [];
 let gatewayUpdateInFlight = false;
 let gatewayUpdateDirty = false;
 let lastDevServerScanAt = 0;
-const remoteSessionIds = new Set<string>();
+const remoteClientSessions = new Map<string, Set<string>>();
+const sessionGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const statusSessionIds = new Set<string>();
 const pendingQuestions = new Map<string, unknown>();
 const devServers = new Map<string, { id: string; sessionId: string; port: number; url: string; label: string; source: string; command?: string; pid?: number; lastSeenAt: number }>();
@@ -456,7 +495,11 @@ function questionSessionId(question: unknown) {
 
 function openRemoteSessionActive(sessionId: string | undefined) {
   if (!sessionId) return false;
-  return visibleSessionId === sessionId || remoteSessionIds.has(sessionId);
+  if (visibleSessionId === sessionId) return true;
+  for (const sessions of remoteClientSessions.values()) {
+    if (sessions.has(sessionId)) return true;
+  }
+  return false;
 }
 
 function prunePendingQuestions() {
@@ -1052,6 +1095,11 @@ function stopTunnelProxy() {
   stopHeartbeatMonitor();
   remoteClients.clear();
   clearRemoteClientState();
+  for (const timer of sessionGraceTimers.values()) {
+    clearTimeout(timer);
+  }
+  sessionGraceTimers.clear();
+  remoteClientSessions.clear();
   unpublishLanService();
   try {
     tunnelProxy?.close();
@@ -1159,7 +1207,9 @@ function applyProxyResumeState() {
 function activeSessionIds() {
   const ids: string[] = [];
   addSessionId(ids, visibleSessionId);
-  for (const id of remoteSessionIds) addSessionId(ids, id);
+  for (const sessions of remoteClientSessions.values()) {
+    for (const id of sessions) addSessionId(ids, id);
+  }
   for (const id of statusSessionIds) addSessionId(ids, id);
   return ids;
 }
@@ -1966,19 +2016,40 @@ function openRemoteConnectedDevice(event: unknown) {
   return device || undefined;
 }
 
+function openRemoteClientId(event: unknown) {
+  const message = eventString(event, "message");
+  const match = message.match(/\bclientId=(or_[A-Za-z0-9_-]+)\b/);
+  return match?.[1];
+}
+
 function openRemoteSessionId(event: unknown) {
   const value = `${eventString(event, "message")} ${openRemoteCommand(event)}`;
   return value.match(/\bsession=(ses_[A-Za-z0-9_-]+)\b/)?.[1];
 }
 
-function markOpenRemoteSession(sessionId: string | undefined) {
-  if (sessionId) remoteSessionIds.add(sessionId);
+function markOpenRemoteSession(clientId: string | undefined, sessionId: string | undefined) {
+  if (!sessionId) return;
+  const sessions = remoteClientSessions.get(clientId) ?? new Set<string>();
+  sessions.add(sessionId);
+  remoteClientSessions.set(clientId, sessions);
 }
 
-function clearOpenRemoteSessions() {
-  if (!remoteSessionIds.size && !statusSessionIds.size) return;
-  remoteSessionIds.clear();
-  statusSessionIds.clear();
+function clearOpenRemoteSessions(clientId?: string) {
+  let changed = false;
+  if (clientId === undefined) {
+    for (const [, sessions] of remoteClientSessions) {
+      if (sessions.size) changed = true;
+      sessions.clear();
+    }
+    remoteClientSessions.clear();
+    if (statusSessionIds.size) changed = true;
+    statusSessionIds.clear();
+  } else {
+    const sessions = remoteClientSessions.get(clientId);
+    if (sessions?.size) changed = true;
+    remoteClientSessions.delete(clientId);
+  }
+  if (!changed) return;
   prunePendingQuestions();
 }
 
@@ -2016,17 +2087,21 @@ function installEventHandlers(api: TuiPluginApi) {
     if (!currentApi) return;
     rememberDevServers(event);
     if (isOpenRemoteConnectedToast(event)) {
-      markOpenRemoteSession(openRemoteSessionId(event));
+      const clientId = openRemoteClientId(event);
+      cancelGraceTimer(clientId);
+      markOpenRemoteSession(clientId, openRemoteSessionId(event));
       markRemoteConnected(currentApi, openRemoteConnectedDevice(event));
       scheduleGatewayUpdate();
     }
     if (isOpenRemoteWaitingToast(event)) {
-      clearOpenRemoteSessions();
-      markRemoteWaiting(currentApi);
+      const clientId = openRemoteClientId(event);
+      startGraceTimer(clientId);
       scheduleGatewayUpdate();
     }
     if (isOpenRemoteDisconnectedToast(event)) {
-      clearOpenRemoteSessions();
+      const clientId = openRemoteClientId(event);
+      cancelGraceTimer(clientId);
+      clearOpenRemoteSessions(clientId);
       markRemoteDisconnected(currentApi);
       scheduleGatewayUpdate();
     }
@@ -2051,14 +2126,18 @@ function installEventHandlers(api: TuiPluginApi) {
     if (!currentApi) return;
     rememberDevServers(event);
     const command = openRemoteCommand(event);
-    if (command === "openremote.connected") markRemoteConnected(currentApi);
+    if (command === "openremote.connected") {
+      cancelGraceTimer(activeClientId);
+      markRemoteConnected(currentApi);
+    }
     if (command === "openremote.waiting") {
-      clearOpenRemoteSessions();
+      startGraceTimer(activeClientId);
       markRemoteWaiting(currentApi);
       scheduleGatewayUpdate();
     }
     if (command === "openremote.disconnected") {
-      clearOpenRemoteSessions();
+      cancelGraceTimer(activeClientId);
+      clearOpenRemoteSessions(activeClientId);
       markRemoteDisconnected(currentApi);
       scheduleGatewayUpdate();
     }
@@ -2088,7 +2167,11 @@ function installEventHandlers(api: TuiPluginApi) {
   });
   api.event.on("session.deleted", (event) => {
     const id = eventSessionId(event);
-    if (id) remoteSessionIds.delete(id);
+    if (id) {
+      for (const sessions of remoteClientSessions.values()) {
+        sessions.delete(id);
+      }
+    }
     if (id && visibleSessionId === id) visibleSessionId = undefined;
     prunePendingQuestions();
     scheduleGatewayUpdate();
