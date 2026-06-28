@@ -169,7 +169,7 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
 
   useEffect(() => {
     const mode = rawPromptStatus.mode.toLowerCase();
-    if (mode) setAgentMode(mode);
+    if (mode && (mode !== "compaction" || agentToggleMode === "all")) setAgentMode(mode);
   }, [rawPromptStatus.mode]);
 
   useEffect(() => {
@@ -237,8 +237,13 @@ export function ChatScreen({ client, session, commands, messages, livePartsByMes
       return;
     }
 
-    if (command.name === "compact") await client.executeTuiCommand("session.compact");
-    if (command.name === "undo") await client.executeTuiCommand("session.undo");
+    if (command.name === "compact") await client.executeTuiCommand("session_compact");
+    if (command.name === "undo") {
+      const latest = latestUserMessageId(messages);
+      if (latest) await client.revertMessage(session.id, latest);
+      onSent();
+      return;
+    }
     if (command.name === "new") {
       if (!allowNewSessions) return;
       await onNewSession();
