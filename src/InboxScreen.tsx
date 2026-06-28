@@ -115,7 +115,7 @@ export function InboxScreen({ questions, sessions, serverUrl, onBack, onReply, o
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.wrap}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.wrap}>
       <StatusLine
         left={<TerminalText tone="yellow" bold>{serverLabel(serverUrl)}</TerminalText>}
         right={<CommandButton label="back" tone="muted" onPress={onBack} />}
